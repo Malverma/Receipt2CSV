@@ -4,7 +4,7 @@ Turns scanned Real Canadian Superstore receipts into `.csv` price files that Est
 
 ## Install
 
-1. Download `POSscan-Setup-1.0.0.exe` from the [latest release](https://github.com/Malverma/Receipt2CSV/releases/latest).
+1. Download `POSscan-Setup-1.1.0.exe` from the [latest release](https://github.com/Malverma/Receipt2CSV/releases/latest).
 2. Double-click the file. POSscan installs and opens by itself, with no admin password needed.
 
 The installer isn't code-signed yet, so Windows may show "Windows protected your PC". Click **More info**, then **Run anyway**.
@@ -14,7 +14,7 @@ To update, run the newer installer. Your receipts and settings are kept.
 ## Use
 
 1. Drop a scanned receipt PDF onto POSscan. One PDF can hold several receipts.
-2. Check anything POSscan flags, and check new item codes against the receipt.
+2. Check anything POSscan flags, and check new item codes against the receipt. To go down the receipt one line at a time, turn on **Manual Confirmation**, correct any number in the box, and press Enter for the next line.
 3. Click **Create price file**. Each receipt gets its own CSV in `Documents\POSscan`.
 4. Import that file into Estream.
 

@@ -107,7 +107,7 @@ public sealed class SettingsVm : Vm
             Error = "Enter your store's name.";
             return;
         }
-        _main.Workflow.Store.SaveSettings(new AppSettings
+        _main.Workflow.Store.SaveSettings(_main.Workflow.Store.GetSettings() with
         {
             StoreName = StoreName.Trim().ToUpperInvariant(), StoreNumber = StoreNumber.Trim(), OutputFolder = OutputFolder.Trim(),
             ScanFolder = ScanFolder.Trim(), PriceChangePercent = pct, ExportWeighed = ExportWeighed, FullRasLayout = FullLayout,

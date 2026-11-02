@@ -5,7 +5,7 @@ public enum PriceUnit { Each, Kg }
 public enum Severity { Warning, Check, Block }
 
 /// <summary>One visual line of receipt text from OCR or a text layer.</summary>
-public sealed record OcrLine(string Text, double Confidence = 1.0, int Top = 0, int Bottom = 0);
+public sealed record OcrLine(string Text, double Confidence = 1.0, int Top = 0, int Bottom = 0, int Left = 0, int Right = 0);
 
 public sealed class ReceiptItem
 {

@@ -1,5 +1,8 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.VisualTree;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
@@ -180,6 +183,93 @@ public class AppFlowTests
     }
 
     [AvaloniaFact]
+    public async Task Manual_confirmation_walks_the_receipt_with_the_keyboard()
+    {
+        var (window, main, store, _) = Launch();
+        await main.ImportAsync(FindUp("SUPERSTORE BATCH.pdf"));
+        var home = Assert.IsType<HomeVm>(main.Current);
+        home.Recent.Single(r => r.Title.EndsWith("total 220.56")).Open.Execute(null);
+        var review = Assert.IsType<ReviewVm>(main.Current);
+        Assert.False(review.IsManualOpen);
+        Dispatcher.UIThread.RunJobs();
+
+        var toggle = window.GetVisualDescendants().OfType<ToggleButton>().Single(t => t.Name == "ManualToggle");
+        Assert.Equal("Manual Confirmation", toggle.Content);
+        toggle.IsChecked = true;
+        Dispatcher.UIThread.RunJobs();
+        var manual = Assert.IsType<ManualConfirmVm>(review.Manual);
+        Assert.True(store.GetSettings().ManualConfirmation);
+        Assert.Equal("Line 1 of 53", manual.Progress);
+        Assert.Equal("02970080141  1 @ 1.99", manual.Text);
+        Assert.True(manual.HasClip);
+        Shot(window, "22-manual-first-line");
+
+        // The box has the cursor, so a person can just press Enter, or type and press Enter.
+        var box = window.GetVisualDescendants().OfType<TextBox>().Single(t => t.Name == "ManualBox");
+        Assert.True(box.IsFocused);
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Line 2 of 53", manual.Progress);
+        Assert.Equal("02970080147  1 @ 1.99", box.Text);
+        Assert.True(box.IsFocused);
+
+        // Type a change, then Enter.
+        box.Text = "02970080147  1 @ 2.49";
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(2.49m, review.Session.Receipt.Items.Single(i => i.RawCode == "02970080147").UnitPrice);
+        Assert.Equal("Line 3 of 53", manual.Progress);
+
+        // Something unreadable stays on the line and says why.
+        box.Text = "nonsense";
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(manual.HasError);
+        Assert.Equal("Line 3 of 53", manual.Progress);
+        Shot(window, "23-manual-error");
+
+        manual.Previous.Execute(null);
+        Assert.Equal("02970080147  1 @ 2.49", manual.Text);
+        box.Text = "02970080147  1 @ 1.99";
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        for (int guard = 0; guard < 60 && !manual.IsFinished; guard++)
+        {
+            var fixedText = manual.Text.Replace("06520090399", "06620090399").Replace("05620000502", "06620000502");
+            box.Text = fixedText;
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(manual.HasError, manual.Error);
+        }
+        Assert.True(manual.IsFinished);
+        Assert.Contains("totals match at 220.06", manual.FinishText);
+        Shot(window, "24-manual-finished");
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(review.IsManualOpen);
+        Assert.True(review.CanExport);
+        Shot(window, "25-manual-closed-ready");
+
+        // The toggle stays on, so another receipt opens the popup, and a finished one doesn't.
+        main.ShowHome();
+        var next = Assert.IsType<HomeVm>(main.Current);
+        next.Recent.Single(r => r.Title.EndsWith("total 380.46")).Open.Execute(null);
+        var second = Assert.IsType<ReviewVm>(main.Current);
+        Assert.True(second.IsManualOpen);
+        second.Manual!.Close.Execute(null);
+        Assert.False(second.IsManualOpen);
+        Assert.True(second.ManualConfirmation);
+
+        main.ShowHome();
+        Assert.IsType<HomeVm>(main.Current).Recent.Single(r => r.Title.EndsWith("total 220.56")).Open.Execute(null);
+        Assert.False(Assert.IsType<ReviewVm>(main.Current).IsManualOpen);
+
+        store.Dispose();
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task Bad_file_returns_home_with_a_clear_message()
     {
         var (window, main, store, dir) = Launch();
@@ -220,8 +310,10 @@ public class AppFlowTests
 
         s.Percent = "30";
         s.ExportWeighed = true;
+        store.SaveSettings(store.GetSettings() with { ManualConfirmation = true });
         s.Save.Execute(null);
         Assert.IsType<HomeVm>(main.Current);
+        Assert.True(store.GetSettings().ManualConfirmation); // Saving settings doesn't turn the toggle off.
         Assert.Equal(30m, store.GetSettings().PriceChangePercent);
         Assert.True(store.GetSettings().ExportWeighed);
         store.Dispose();

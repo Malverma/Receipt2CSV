@@ -15,6 +15,7 @@ The design is in `spec.md`. This file tracks what's built and what's next.
 | Crash recovery, duplicate detection, and daily backups | Built | Automated tests |
 | Scanner folder | Built | Not covered by tests yet |
 | RAS CSV reader and writer | Built | Reads all 203 real rows. Writing is atomic with a read-back check. |
+| Manual Confirmation popup | Built | Driven with real keypresses on the real batch, with screens checked by eye |
 | Estream test files | Ready | `milestone0/`, awaiting a test on a real System 5 |
 | One-click installer (unsigned) | Built | Install, update, update refused while open, and uninstall with data kept, all under Wine. OCR on the real receipt using the bundled Microsoft runtime. |
 
@@ -37,7 +38,7 @@ The design is in `spec.md`. This file tracks what's built and what's next.
 
 ## Next steps
 
-1. **Store:** run `dist/POSscan-Setup-1.0.0.exe` on the store PC.
+1. **Store:** run `dist/POSscan-Setup-1.1.0.exe` on the store PC.
 2. **Store:** run `milestone0/README.md` on a backed-up System 5.
 3. **Store:** save Superstore receipts as they come in. Once there are about 30, run the accuracy test in spec section 12.
 4. Confirm the receipt-to-UPC rule against about 10 real products.
@@ -84,6 +85,16 @@ Set by the store on 2026-11-02:
 - Coupons and printed discounts are ignored, so the cost is the price before them.
 - If units of an item were bought at more than one price, the highest applies to all of them. When every unit was at a multi-buy deal, the cost is the deal's price per unit, since that's the only amount paid.
 - Each receipt gets its own CSV.
+
+## Manual Confirmation
+
+A toggle in the review screen's header. Turning it on opens a popup that goes down the receipt in order: each item, its fees and discounts, multi-buy totals, then the subtotal, tax, total, and item count. Each line shows its part of the scan and one text box, such as `06870011200  4 @ 5.05`.
+
+- Enter saves the line and moves on. Esc closes the popup. Lines already confirmed stay saved.
+- Confirming a line counts as checking it, and sets up a new item if its code gives a UPC. In-store and produce codes still need a SKU on the main screen.
+- The line total is worked out from the quantity and price, and a warning shows first if the receipt printed something else.
+- The toggle is remembered, so each receipt opens the popup until it's been finished once. Turn the toggle off and on to go through a receipt again.
+- Lines that couldn't be read aren't in the popup. They stay on the main screen.
 
 ## Where the app keeps data
 

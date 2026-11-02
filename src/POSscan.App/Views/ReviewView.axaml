@@ -3,17 +3,20 @@
              xmlns:vm="using:POSscan.App.ViewModels"
              x:Class="POSscan.App.Views.ReviewView"
              x:DataType="vm:ReviewVm">
-  <Grid RowDefinitions="Auto,*,Auto">
+  <Grid>
+  <Grid RowDefinitions="Auto,*,Auto" IsEnabled="{Binding IsManualClosed}">
 
     <!-- Header -->
     <Border Background="{StaticResource Card}" BorderBrush="{StaticResource Hairline}" BorderThickness="0,0,0,1" Padding="14,10">
-      <Grid ColumnDefinitions="Auto,*,Auto">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
         <Button Classes="link" Content="Back" Command="{Binding Back}" VerticalAlignment="Center"/>
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" Margin="8,0" VerticalAlignment="Center">
           <TextBlock Classes="h2" Text="{Binding HeaderTitle}"/>
           <TextBlock Classes="muted" Text="{Binding HeaderDate}" VerticalAlignment="Center"/>
         </StackPanel>
-        <Border Grid.Column="2" Background="{Binding TotalsBg}" CornerRadius="12" Padding="12,4" VerticalAlignment="Center">
+        <ToggleButton x:Name="ManualToggle" Grid.Column="2" Content="Manual Confirmation" IsChecked="{Binding ManualConfirmation}" Margin="0,0,10,0" VerticalAlignment="Center"
+                      ToolTip.Tip="Go down the receipt line by line and confirm each number"/>
+        <Border Grid.Column="3" Background="{Binding TotalsBg}" CornerRadius="12" Padding="12,4" VerticalAlignment="Center">
           <TextBlock Text="{Binding TotalsChip}" Foreground="{Binding TotalsFg}" FontWeight="SemiBold" FontSize="13"/>
         </Border>
       </Grid>
@@ -223,5 +226,49 @@
         <Button Grid.Column="2" Classes="primary" Content="Create price file" Command="{Binding Export}" Padding="20,9"/>
       </Grid>
     </Border>
+  </Grid>
+
+    <!-- Manual Confirmation popup -->
+    <Grid Background="#73000000" IsVisible="{Binding IsManualOpen}">
+      <Border x:Name="ManualCard" DataContext="{Binding Manual}" x:DataType="vm:ManualConfirmVm" Classes="card" Width="640" Padding="24,20"
+              HorizontalAlignment="Center" VerticalAlignment="Center" KeyDown="OnManualKeyDown">
+        <StackPanel Spacing="12">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Classes="h2" Text="{Binding Title}" TextWrapping="Wrap"/>
+            <TextBlock Grid.Column="1" Classes="muted" Text="{Binding Progress}" Margin="12,0,0,0" VerticalAlignment="Center"/>
+          </Grid>
+
+          <Border Background="White" BorderBrush="{StaticResource Hairline}" BorderThickness="1" CornerRadius="4" Padding="6" IsVisible="{Binding HasClip}">
+            <Image Source="{Binding Clip}" Stretch="Uniform" MaxHeight="220" HorizontalAlignment="Center"/>
+          </Border>
+
+          <StackPanel IsVisible="{Binding IsWorking}">
+            <TextBlock Classes="label" Text="{Binding Hint}" IsVisible="{Binding HasHint}"/>
+            <TextBox x:Name="ManualBox" Text="{Binding Text}" FontSize="20" FontFamily="Consolas,DejaVu Sans Mono,monospace" AcceptsReturn="False"/>
+          </StackPanel>
+
+          <TextBlock Text="{Binding FinishText}" TextWrapping="Wrap" IsVisible="{Binding IsFinished}"/>
+
+          <Border Background="{StaticResource WarnSoft}" CornerRadius="6" Padding="10,8" IsVisible="{Binding HasWarning}">
+            <TextBlock Text="{Binding Warning}" TextWrapping="Wrap" Foreground="{StaticResource Warn}"/>
+          </Border>
+          <Border Background="{StaticResource BadSoft}" CornerRadius="6" Padding="10,8" IsVisible="{Binding HasError}">
+            <TextBlock Text="{Binding Error}" TextWrapping="Wrap" Foreground="{StaticResource Bad}"/>
+          </Border>
+
+          <Grid ColumnDefinitions="Auto,*,Auto">
+            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsWorking}">
+              <Button Content="Previous line" Command="{Binding Previous}"/>
+              <Button Content="Skip for now" Command="{Binding SkipStep}"/>
+            </StackPanel>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+              <Button Content="Close" Command="{Binding Close}" IsVisible="{Binding IsWorking}"/>
+              <Button Classes="primary" Content="Confirm (Enter)" Command="{Binding Next}" IsVisible="{Binding IsWorking}"/>
+              <Button x:Name="ManualDone" Classes="primary" Content="Done" Command="{Binding Next}" IsVisible="{Binding IsFinished}"/>
+            </StackPanel>
+          </Grid>
+        </StackPanel>
+      </Border>
+    </Grid>
   </Grid>
 </UserControl>

@@ -381,6 +381,70 @@ public class WorkflowTests : IDisposable
     }
 
     [Fact]
+    public void Confirming_every_line_by_hand_sets_up_new_items_and_survives_a_restart()
+    {
+        var flow = new Workflow(_store, new StackReader(Stack(2)));
+        var s = flow.Open(flow.Import(Pdf()).ReceiptId!.Value);
+        var codes = new Dictionary<string, string> { ["06520090399"] = "06620090399", ["05620000502"] = "06620000502" };
+        foreach (var step in ManualConfirmation.Steps(s.Receipt, s.Decisions))
+        {
+            var text = ManualConfirmation.Format(s.Receipt, step);
+            foreach (var (bad, good) in codes) text = text.Replace(bad, good);
+            Assert.Null(s.ConfirmStep(step, text));
+        }
+        Assert.True(s.Review.CanExport);
+        Assert.Equal(43, s.Review.ToExport.Count());
+
+        var reopened = flow.Open(s.Record.Id);
+        Assert.Contains(reopened.Receipt.Items, i => i.RawCode == "06620090399");
+        Assert.True(reopened.Review.CanExport);
+    }
+
+    [Fact]
+    public void A_code_one_digit_from_a_known_item_is_pointed_out_and_can_still_be_confirmed()
+    {
+        var lines = new[] { "21-GROCERY", "02970080141 IDAH BRY MRJ 1.99", "02970080147 RSTD GRLIC MRJ 1.99", "SUBTOTAL 3.98", "TOTAL 3.98" }.Select(l => new OcrLine(l)).ToList();
+        var flow = new Workflow(_store, new StackReader(lines));
+        var s = flow.Open(flow.Import(Pdf()).ReceiptId!.Value);
+        var steps = ManualConfirmation.Steps(s.Receipt, s.Decisions);
+        Assert.Null(s.ConfirmStep(steps[0], "02970080141 1 @ 1.99"));
+        Assert.NotEmpty(s.NearMisses(steps[1].Line));
+        Assert.Null(s.ConfirmStep(steps[1], "02970080147 1 @ 1.99"));
+        Assert.Empty(s.NearMisses(steps[1].Line));
+        Assert.Equal(LineState.Ready, s.Review.Lines.Single(l => l.Item.RawCode == "02970080147").State);
+    }
+
+    [Fact]
+    public void Text_that_does_not_read_is_refused_and_nothing_is_saved()
+    {
+        var flow = new Workflow(_store, new StackReader(Stack(2)));
+        var s = flow.Open(flow.Import(Pdf()).ReceiptId!.Value);
+        var step = ManualConfirmation.Steps(s.Receipt, s.Decisions)[0];
+        Assert.NotNull(s.ConfirmStep(step, "not numbers"));
+        Assert.Empty(flow.Open(s.Record.Id).Record.Edits);
+    }
+
+    [Fact]
+    public void An_in_store_code_stays_flagged_because_it_needs_a_sku()
+    {
+        var (_, s) = Start();
+        var step = ManualConfirmation.Steps(s.Receipt, s.Decisions).First(x => x.Kind == ConfirmKind.Item && s.Receipt.Items.Single(i => i.SourceLine == x.Line).RawCode == "2439450");
+        Assert.Null(s.ConfirmStep(step, ManualConfirmation.Format(s.Receipt, step)));
+        Assert.Equal(LineState.Attention, s.Review.Lines.Single(l => l.Item.RawCode == "2439450").State);
+    }
+
+    [Fact]
+    public void Finishing_the_walk_is_remembered()
+    {
+        var (flow, s) = Start();
+        Assert.False(s.ManualConfirmationDone);
+        s.MarkManualConfirmationDone();
+        s.MarkManualConfirmationDone();
+        Assert.True(flow.Open(s.Record.Id).ManualConfirmationDone);
+        Assert.Single(_store.AuditActions(s.Record.Id), a => a == "manual-confirmation-done");
+    }
+
+    [Fact]
     public void Missing_file_gives_a_clear_message()
     {
         var flow = new Workflow(_store, new FixtureReader(_lines));

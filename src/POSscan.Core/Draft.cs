@@ -8,6 +8,8 @@ public enum EditKind
     SetSubtotal, SetTax, SetTotal, SetItemCount,
     IgnoreLine, AddItem,
     Skip, Unskip, ConfirmLine, ForceExport,
+    // Saved drafts store these by number, so new kinds only ever go on the end.
+    SetFees, SetDiscount,
 }
 
 /// <summary>
@@ -59,6 +61,8 @@ public static class ReceiptDraft
                 item.LineTotal = Dec(e.Value);
                 d.Confirmed.Remove(e.Line);
                 break;
+            case EditKind.SetFees when item is not null: item.Fees = Dec(e.Value); break;
+            case EditKind.SetDiscount when item is not null: item.Discount = Dec(e.Value); break;
             case EditKind.SetGroupTotal:
                 var group = r.Groups.FirstOrDefault(g => g.SourceLine == e.Line);
                 if (group is not null)

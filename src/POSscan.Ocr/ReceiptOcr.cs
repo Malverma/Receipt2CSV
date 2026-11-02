@@ -130,7 +130,7 @@ public sealed class ReceiptOcr : IDisposable
             if (row.Count == 0) return;
             row.Sort((a, b) => a.Left.CompareTo(b.Left));
             lines.Add(new OcrLine(string.Join(' ', row.Select(b => b.Text)), row.Min(b => b.Score),
-                (int)row.Min(b => b.Top), (int)row.Max(b => b.Bottom)));
+                (int)row.Min(b => b.Top), (int)row.Max(b => b.Bottom), (int)row.Min(b => b.Left), (int)row.Max(b => b.Right)));
             row.Clear();
         }
         foreach (var b in boxes.OrderBy(Level))

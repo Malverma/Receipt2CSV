@@ -31,6 +31,7 @@ public sealed class ReviewVm : Vm
     private readonly MainVm _main;
     public ReceiptSession Session { get; }
 
+    private ManualConfirmVm? _manual;
     private RowVm? _selected;
     private bool _isRebuilding, _discardArmed;
     private double _zoom = 1;
@@ -42,6 +43,24 @@ public sealed class ReviewVm : Vm
     public ObservableCollection<string> Reasons { get; } = [];
     public ObservableCollection<FixVm> Fixes { get; } = [];
     public Bitmap? Preview { get; }
+
+    /// <summary>The toggle. Remembered between receipts, so it stays on until someone turns it off.</summary>
+    public bool ManualConfirmation
+    {
+        get => _main.Workflow.Store.GetSettings().ManualConfirmation;
+        set
+        {
+            var store = _main.Workflow.Store;
+            if (store.GetSettings().ManualConfirmation == value) return;
+            store.SaveSettings(store.GetSettings() with { ManualConfirmation = value });
+            Raise();
+            if (value) OpenManual(); else CloseManual();
+        }
+    }
+
+    public ManualConfirmVm? Manual { get => _manual; private set { if (Set(ref _manual, value)) Raise(nameof(IsManualOpen)); Raise(nameof(IsManualClosed)); } }
+    public bool IsManualOpen => _manual is not null;
+    public bool IsManualClosed => _manual is null;
 
     public string HeaderTitle => Session.Record.Supplier;
     public string HeaderDate => (Session.Receipt.Date ?? Session.Record.ReceiptDate)?.ToString("MMMM d, yyyy") ?? "Date not read";
@@ -161,6 +180,16 @@ public sealed class ReviewVm : Vm
         Discard = new Command(DoDiscard);
         ZoomIn = new Command(() => SetZoom(Math.Min(_zoom + 0.5, 3)));
         ZoomOut = new Command(() => SetZoom(Math.Max(_zoom - 0.5, 1)));
+        Refresh(null, selectFirstAttention: true);
+        if (ManualConfirmation && !Session.ManualConfirmationDone) OpenManual();
+    }
+
+    private void OpenManual() => Manual = new ManualConfirmVm(Session, Preview, CloseManual);
+
+    private void CloseManual()
+    {
+        if (_manual is null) return;
+        Manual = null;
         Refresh(null, selectFirstAttention: true);
     }
 

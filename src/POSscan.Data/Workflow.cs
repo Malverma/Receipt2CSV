@@ -89,6 +89,7 @@ public sealed class Workflow(PosStore store, IReceiptReader reader)
 /// <summary>One receipt being reviewed. Every change is saved as it happens, so a crash loses nothing.</summary>
 public sealed class ReceiptSession
 {
+    private const string ManualDoneAction = "manual-confirmation-done";
     private readonly PosStore _store;
     private readonly List<ReceiptEdit> _edits;
     public ReceiptRecord Record { get; }
@@ -117,6 +118,40 @@ public sealed class ReceiptSession
         _store.SaveMapping(Record.Supplier, mapping, Record.Id);
         Rebuild();
     }
+
+    public bool ManualConfirmationDone => _store.AuditActions(Record.Id).Contains(ManualDoneAction);
+
+    public void MarkManualConfirmationDone()
+    {
+        if (!ManualConfirmationDone) _store.Audit(Record.Id, ManualDoneAction, "");
+    }
+
+    /// <summary>
+    /// Saves one line of the manual walk through the receipt. A person just read this line against the scan, so it
+    /// counts as confirmed, and a new item with a usable code is set up as if they'd clicked Confirm.
+    /// </summary>
+    /// <returns>What's wrong with the text, written for store staff, or null if it was saved.</returns>
+    public string? ConfirmStep(ConfirmStep step, string text)
+    {
+        var input = ManualConfirmation.Read(Receipt, step, text);
+        if (input.Error is not null) return input.Error;
+        foreach (var edit in input.Edits) Apply(edit);
+        if (step.Kind != ConfirmKind.Item) return null;
+
+        Apply(new ReceiptEdit(EditKind.ConfirmLine, step.Line));
+        var line = Review.Lines.FirstOrDefault(l => l.Item.SourceLine == step.Line);
+        if (line is { Mapping: null, State: LineState.Attention })
+        {
+            var draft = Core.Review.NewMappingDraft(line.Item);
+            if (draft.Upc.Length > 0 && draft.EstreamName.Length > 0) SaveMapping(draft);
+        }
+        return null;
+    }
+
+    /// <summary>The known items an item's code is one digit away from, which can mean a misread.</summary>
+    public IReadOnlyList<string> NearMisses(int sourceLine) =>
+        Review.Lines.FirstOrDefault(l => l.Item.SourceLine == sourceLine)?.Fixes
+            .Where(f => f.Edit.Kind == EditKind.SetCode).Select(f => f.Label).ToList() ?? [];
 
     public void RemoveMapping(string code)
     {

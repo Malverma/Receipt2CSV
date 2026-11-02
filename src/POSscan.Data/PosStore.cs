@@ -17,6 +17,8 @@ public sealed record AppSettings
     public bool ExportWeighed { get; init; }
     /// <summary>True keeps the report text around the rows, as in the known RAS CSV.</summary>
     public bool FullRasLayout { get; init; } = true;
+    /// <summary>True opens the line-by-line popup on each receipt until it's been gone through once.</summary>
+    public bool ManualConfirmation { get; init; }
 }
 
 public sealed record ReceiptRecord(
