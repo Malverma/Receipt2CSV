@@ -1,0 +1,84 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:POSscan.App.ViewModels"
+             x:Class="POSscan.App.Views.SettingsView"
+             x:DataType="vm:SettingsVm">
+  <ScrollViewer>
+    <StackPanel Width="620" Margin="0,32" Spacing="16" HorizontalAlignment="Center">
+      <TextBlock Classes="h1" Text="Settings"/>
+
+      <Border Classes="card" Padding="16">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="h2" Text="Your store"/>
+          <Grid ColumnDefinitions="*,12,120">
+            <StackPanel>
+              <TextBlock Classes="label" Text="Store name"/>
+              <TextBox Text="{Binding StoreName}"/>
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+              <TextBlock Classes="label" Text="Store number"/>
+              <TextBox Text="{Binding StoreNumber}"/>
+            </StackPanel>
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card" Padding="16">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="h2" Text="Folders"/>
+          <StackPanel>
+            <TextBlock Classes="label" Text="Save price files to"/>
+            <Grid ColumnDefinitions="*,8,Auto">
+              <TextBox Text="{Binding OutputFolder}"/>
+              <Button Grid.Column="2" Content="Choose" Command="{Binding ChooseOutput}"/>
+            </Grid>
+          </StackPanel>
+          <StackPanel>
+            <TextBlock Classes="label" Text="Scanner folder (optional). New PDFs here appear on the home screen."/>
+            <Grid ColumnDefinitions="*,8,Auto">
+              <TextBox Text="{Binding ScanFolder}"/>
+              <Button Grid.Column="2" Content="Choose" Command="{Binding ChooseScan}"/>
+            </Grid>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card" Padding="16">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="h2" Text="Price file"/>
+          <StackPanel>
+            <TextBlock Classes="label" Text="Ask me to check a cost that changes by more than (%)"/>
+            <TextBox Text="{Binding Percent}" Width="100" HorizontalAlignment="Left"/>
+          </StackPanel>
+          <CheckBox IsChecked="{Binding FullLayout}">
+            <TextBlock TextWrapping="Wrap" Text="Use the full RAS layout, with report text around the items"/>
+          </CheckBox>
+          <CheckBox IsChecked="{Binding ExportWeighed}">
+            <TextBlock TextWrapping="Wrap" Text="Include items sold by weight, priced per kg"/>
+          </CheckBox>
+          <TextBlock Classes="muted small" TextWrapping="Wrap" Text="Only change these two options if your Estream test imports show you need to."/>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card" Padding="16">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Spacing="2">
+            <TextBlock FontWeight="SemiBold" Text="Your POSscan data"/>
+            <TextBlock Classes="muted small" Text="{Binding DataFolder}" TextTrimming="CharacterEllipsis"/>
+            <TextBlock Classes="muted small" Text="Backed up automatically each day. Keep this folder in your own PC backups."/>
+          </StackPanel>
+          <Button Grid.Column="1" Content="Open" Command="{Binding OpenDataFolder}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+        </Grid>
+      </Border>
+
+      <Border Background="{StaticResource BadSoft}" CornerRadius="6" Padding="10,8" IsVisible="{Binding HasError}">
+        <TextBlock Text="{Binding Error}" TextWrapping="Wrap" Foreground="{StaticResource Bad}"/>
+      </Border>
+
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button Classes="primary" Content="Save" Command="{Binding Save}"/>
+        <Button Content="Cancel" Command="{Binding Cancel}"/>
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

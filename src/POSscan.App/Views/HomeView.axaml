@@ -1,0 +1,80 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:POSscan.App.ViewModels"
+             x:Class="POSscan.App.Views.HomeView"
+             x:DataType="vm:HomeVm">
+  <Grid RowDefinitions="Auto,*" Margin="32,20,32,24" MaxWidth="820">
+    <Grid ColumnDefinitions="*,Auto">
+      <TextBlock Classes="h1" Text="POSscan" VerticalAlignment="Center"/>
+      <Button Grid.Column="1" Classes="link" Content="Settings" Command="{Binding OpenSettings}"/>
+    </Grid>
+    <ScrollViewer Grid.Row="1" Margin="0,16,0,0">
+      <StackPanel Spacing="16">
+        <Border Classes="card" Background="{StaticResource BadSoft}" BorderBrush="{StaticResource Bad}" Padding="14,10" IsVisible="{Binding HasError}">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Text="{Binding Error}" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="{StaticResource Bad}"/>
+            <Button Grid.Column="1" Classes="link" Content="Dismiss" Command="{Binding Dismiss}"/>
+          </Grid>
+        </Border>
+
+        <Border Classes="card" Padding="14,10" IsVisible="{Binding HasNotice}">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Text="{Binding Notice}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" Classes="link" Content="Dismiss" Command="{Binding Dismiss}"/>
+          </Grid>
+        </Border>
+
+        <Border Classes="card" Background="{StaticResource WarnSoft}" BorderBrush="{StaticResource Warn}" Padding="14,10" IsVisible="{Binding HasDuplicate}">
+          <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+            <TextBlock Text="{Binding DuplicateText}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" Classes="link" Content="Open it" Command="{Binding OpenDuplicate}"/>
+            <Button Grid.Column="2" Classes="link" Content="Add it again" Command="{Binding ImportAnyway}"/>
+            <Button Grid.Column="3" Classes="link" Content="Dismiss" Command="{Binding Dismiss}"/>
+          </Grid>
+        </Border>
+
+        <Border x:Name="DropZone" Classes="card" Height="240" BorderThickness="2" BorderBrush="#B9C2CF" DragDrop.AllowDrop="True">
+          <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
+            <TextBlock Classes="h1" Text="Drop a receipt PDF here" HorizontalAlignment="Center"/>
+            <TextBlock Classes="muted" Text="POSscan reads it and checks it against the printed totals." HorizontalAlignment="Center"/>
+            <Button Classes="primary" Content="Choose a file" HorizontalAlignment="Center" Command="{Binding Choose}" Margin="0,4,0,0"/>
+          </StackPanel>
+        </Border>
+
+        <StackPanel Spacing="8" IsVisible="{Binding HasWaiting}">
+          <TextBlock Classes="h2" Text="New scans"/>
+          <ItemsControl ItemsSource="{Binding Waiting}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ScanRow">
+                <Border Classes="card" Padding="14,8" Margin="0,0,0,6">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    <Button Grid.Column="1" Classes="link" Content="Read it" Command="{Binding Open}"/>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+
+        <StackPanel Spacing="8" IsVisible="{Binding HasRecent}">
+          <TextBlock Classes="h2" Text="Recent receipts"/>
+          <ItemsControl ItemsSource="{Binding Recent}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:RecentRow">
+                <Button Command="{Binding Open}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                        Background="{StaticResource Card}" BorderBrush="{StaticResource Hairline}" BorderThickness="1" Margin="0,0,0,6" Padding="14,10">
+                  <Grid ColumnDefinitions="*,120,110">
+                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Grid.Column="1" Classes="muted" Text="{Binding When}"/>
+                    <TextBlock Grid.Column="2" Classes="muted" Text="{Binding Status}" TextAlignment="Right"/>
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

@@ -1,0 +1,51 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:POSscan.App.ViewModels"
+             x:Class="POSscan.App.Views.DoneView"
+             x:DataType="vm:DoneVm">
+  <ScrollViewer>
+    <StackPanel Width="620" Margin="0,48,0,32" Spacing="16" HorizontalAlignment="Center">
+      <TextBlock Classes="h1" Text="Your price file is ready"/>
+      <TextBlock Classes="muted" Text="{Binding Summary}"/>
+
+      <Border Classes="card" Padding="16">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Spacing="2">
+            <TextBlock FontWeight="SemiBold" Text="{Binding FileName}" TextTrimming="CharacterEllipsis"/>
+            <TextBlock Classes="muted small" Text="{Binding FilePath}" TextTrimming="CharacterEllipsis"/>
+          </StackPanel>
+          <Button Grid.Column="1" Content="Open folder" Command="{Binding OpenFolder}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+        </Grid>
+      </Border>
+
+      <Border Classes="card" Padding="16">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="h2" Text="Next, in Estream"/>
+          <TextBlock TextWrapping="Wrap" Text="1.  Import this file the same way you import a RAS price list."/>
+          <TextBlock TextWrapping="Wrap" Text="2.  Spot-check one or two items to confirm the new cost."/>
+          <TextBlock TextWrapping="Wrap" Classes="muted" Text="Don't open the file in Excel first. Excel can change the numbers."/>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card" Padding="16" IsVisible="{Binding HasByHand}">
+        <StackPanel Spacing="6">
+          <TextBlock Classes="h2" Text="Enter these by hand"/>
+          <TextBlock Classes="muted" TextWrapping="Wrap" Text="Items sold by weight aren't in the file."/>
+          <ItemsControl ItemsSource="{Binding ByHand}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="x:String"><TextBlock Text="{Binding}" Margin="0,2"/></DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button Classes="primary" Content="I've imported it" Command="{Binding MarkImported}" IsVisible="{Binding NotImported}"/>
+        <Border Background="{StaticResource GoodSoft}" CornerRadius="6" Padding="12,7" IsVisible="{Binding Imported}">
+          <TextBlock Text="Marked as imported" Foreground="{StaticResource Good}" FontWeight="SemiBold"/>
+        </Border>
+        <Button Content="Scan another" Command="{Binding Another}"/>
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

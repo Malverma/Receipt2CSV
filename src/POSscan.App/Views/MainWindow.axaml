@@ -1,0 +1,33 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:POSscan.App.ViewModels"
+        xmlns:v="using:POSscan.App.Views"
+        x:Class="POSscan.App.Views.MainWindow"
+        x:DataType="vm:MainVm"
+        Title="POSscan" Icon="/Assets/posscan.ico" Width="1180" Height="780" MinWidth="1120" MinHeight="640"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource Canvas}">
+  <Window.DataTemplates>
+    <DataTemplate DataType="vm:MainVm"><ContentControl Content="{Binding Current}"/></DataTemplate>
+    <DataTemplate DataType="vm:HomeVm"><v:HomeView/></DataTemplate>
+    <DataTemplate DataType="vm:BusyVm">
+      <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="14" Width="360">
+        <TextBlock Classes="h1" Text="Reading your receipt" HorizontalAlignment="Center"/>
+        <ProgressBar IsIndeterminate="True"/>
+        <TextBlock Classes="muted" HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"
+                   Text="This usually takes less than a minute."/>
+      </StackPanel>
+    </DataTemplate>
+    <DataTemplate DataType="vm:ReviewVm"><v:ReviewView/></DataTemplate>
+    <DataTemplate DataType="vm:DoneVm"><v:DoneView/></DataTemplate>
+    <DataTemplate DataType="vm:SettingsVm"><v:SettingsView/></DataTemplate>
+    <DataTemplate DataType="vm:StartupErrorVm">
+      <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10" Width="520">
+        <TextBlock Classes="h1" Text="POSscan couldn't start"/>
+        <TextBlock Text="{Binding Message}" TextWrapping="Wrap"/>
+        <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding LogFolder, StringFormat='Details were saved in {0}'}"/>
+      </StackPanel>
+    </DataTemplate>
+  </Window.DataTemplates>
+  <ContentControl Content="{Binding}"/>
+</Window>

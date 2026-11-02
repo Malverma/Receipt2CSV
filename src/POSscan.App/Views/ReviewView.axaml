@@ -1,0 +1,227 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:POSscan.App.ViewModels"
+             x:Class="POSscan.App.Views.ReviewView"
+             x:DataType="vm:ReviewVm">
+  <Grid RowDefinitions="Auto,*,Auto">
+
+    <!-- Header -->
+    <Border Background="{StaticResource Card}" BorderBrush="{StaticResource Hairline}" BorderThickness="0,0,0,1" Padding="14,10">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <Button Classes="link" Content="Back" Command="{Binding Back}" VerticalAlignment="Center"/>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" Margin="8,0" VerticalAlignment="Center">
+          <TextBlock Classes="h2" Text="{Binding HeaderTitle}"/>
+          <TextBlock Classes="muted" Text="{Binding HeaderDate}" VerticalAlignment="Center"/>
+        </StackPanel>
+        <Border Grid.Column="2" Background="{Binding TotalsBg}" CornerRadius="12" Padding="12,4" VerticalAlignment="Center">
+          <TextBlock Text="{Binding TotalsChip}" Foreground="{Binding TotalsFg}" FontWeight="SemiBold" FontSize="13"/>
+        </Border>
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="1" ColumnDefinitions="424,*,360">
+
+      <!-- Receipt image -->
+      <Grid Grid.Column="0" RowDefinitions="*,Auto" Background="#E9EBEF">
+        <ScrollViewer x:Name="ImageScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+          <Grid Width="{Binding ImageWidth}" Height="{Binding ImageHeight}" Margin="12" VerticalAlignment="Top" HorizontalAlignment="Center">
+            <Image Source="{Binding Preview}" Stretch="Fill"/>
+            <Canvas>
+              <Border IsVisible="{Binding ShowHighlight}" Canvas.Top="{Binding HighlightTop}" Width="{Binding ImageWidth}" Height="{Binding HighlightHeight}"
+                      Background="#330F6CBD" BorderBrush="#0F6CBD" BorderThickness="2" CornerRadius="3"/>
+            </Canvas>
+          </Grid>
+        </ScrollViewer>
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="8,4" Spacing="2">
+          <Button Classes="link" Content="Smaller" Command="{Binding ZoomOut}"/>
+          <Button Classes="link" Content="Larger" Command="{Binding ZoomIn}"/>
+        </StackPanel>
+      </Grid>
+
+      <!-- Lines -->
+      <ListBox Grid.Column="1" Classes="rows" ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}"
+               Background="{StaticResource Card}" BorderBrush="{StaticResource Hairline}" BorderThickness="0,0,1,0">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:RowVm">
+            <Border BorderBrush="{StaticResource Hairline}" BorderThickness="0,0,0,1" Padding="14,9">
+              <Grid ColumnDefinitions="*,Auto,Auto">
+                <StackPanel Spacing="2">
+                  <TextBlock Text="{Binding Title}" FontWeight="Medium" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock Classes="muted small" Text="{Binding Subtitle}" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+                <TextBlock Grid.Column="1" Text="{Binding Amount}" VerticalAlignment="Center" Margin="10,0"/>
+                <Border Grid.Column="2" Background="{Binding StatusBg}" CornerRadius="10" Padding="9,2" VerticalAlignment="Center" MinWidth="58">
+                  <TextBlock Text="{Binding Status}" Foreground="{Binding StatusFg}" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+                </Border>
+              </Grid>
+            </Border>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+
+      <!-- Selected line -->
+      <ScrollViewer Grid.Column="2" Background="{StaticResource Canvas}">
+        <StackPanel Margin="18,16" Spacing="12" IsVisible="{Binding HasSelection}">
+          <TextBlock Classes="h2" Text="{Binding DetailTitle}" TextWrapping="Wrap"/>
+          <TextBlock Classes="muted" Text="{Binding CostSummary}" TextWrapping="Wrap" IsVisible="{Binding IsItem}"/>
+
+          <Border Background="{StaticResource WarnSoft}" CornerRadius="6" Padding="10,8" IsVisible="{Binding HasReasons}">
+            <ItemsControl ItemsSource="{Binding Reasons}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="x:String">
+                  <TextBlock Text="{Binding}" TextWrapping="Wrap" Foreground="{StaticResource Warn}" Margin="0,2"/>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </Border>
+
+          <ItemsControl ItemsSource="{Binding Fixes}" IsVisible="{Binding HasFixes}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:FixVm">
+                <Button Classes="fix" Command="{Binding Run}">
+                  <TextBlock Text="{Binding Label}" TextWrapping="Wrap"/>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <!-- Skipped states -->
+          <StackPanel Spacing="8" IsVisible="{Binding IsSkipped}">
+            <TextBlock TextWrapping="Wrap" Text="This line won't be sent to Estream."/>
+            <Button Content="Use this line" Command="{Binding RestoreLine}"/>
+          </StackPanel>
+          <StackPanel Spacing="8" IsVisible="{Binding IsNotForResale}">
+            <TextBlock TextWrapping="Wrap" Text="You've marked this item as not for resale. POSscan will leave it out from now on."/>
+            <Button Content="Sell this item again" Command="{Binding RestoreResale}"/>
+          </StackPanel>
+
+          <!-- Code and amounts -->
+          <StackPanel Spacing="10" IsVisible="{Binding ShowsCodeAndPrice}">
+            <StackPanel>
+              <TextBlock Classes="label" Text="Item code on receipt"/>
+              <TextBox Text="{Binding CodeText}"/>
+            </StackPanel>
+            <Grid ColumnDefinitions="*,10,*">
+              <StackPanel>
+                <TextBlock Classes="label" Text="{Binding QuantityLabel}"/>
+                <TextBox Text="{Binding QuantityText}"/>
+              </StackPanel>
+              <StackPanel Grid.Column="2" IsVisible="{Binding !IsGroup}">
+                <TextBlock Classes="label" Text="{Binding PriceLabel}"/>
+                <TextBox Text="{Binding UnitText}"/>
+              </StackPanel>
+              <StackPanel Grid.Column="2" IsVisible="{Binding IsGroup}">
+                <TextBlock Classes="label" Text="Multi-buy total"/>
+                <TextBox Text="{Binding GroupText}"/>
+              </StackPanel>
+            </Grid>
+            <StackPanel IsVisible="{Binding ShowsLineTotal}">
+              <TextBlock Classes="label" Text="Line total"/>
+              <TextBox Text="{Binding TotalText}"/>
+            </StackPanel>
+          </StackPanel>
+
+          <!-- Add an unreadable line -->
+          <StackPanel IsVisible="{Binding IsUnreadable}">
+            <TextBlock Classes="label" Text="Item name"/>
+            <TextBox Text="{Binding NameText}"/>
+          </StackPanel>
+
+          <!-- Estream link -->
+          <StackPanel Spacing="10" IsVisible="{Binding ShowsMapping}">
+            <Rectangle Height="1" Fill="{StaticResource Hairline}" Margin="0,4"/>
+            <TextBlock FontWeight="SemiBold" Text="In Estream"/>
+            <StackPanel>
+              <TextBlock Classes="label" Text="Item name"/>
+              <TextBox Text="{Binding NameText}"/>
+            </StackPanel>
+            <Grid ColumnDefinitions="*,10,*">
+              <StackPanel>
+                <TextBlock Classes="label" Text="SKU"/>
+                <TextBox Text="{Binding SkuText}"/>
+              </StackPanel>
+              <StackPanel Grid.Column="2">
+                <TextBlock Classes="label" Text="UPC"/>
+                <TextBox Text="{Binding UpcText}"/>
+              </StackPanel>
+            </Grid>
+            <Expander Header="More details" HorizontalAlignment="Stretch">
+              <Grid ColumnDefinitions="*,10,*">
+                <StackPanel>
+                  <TextBlock Classes="label" Text="Listing code"/>
+                  <TextBox Text="{Binding ListingText}"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                  <TextBlock Classes="label" Text="Container size"/>
+                  <TextBox Text="{Binding ContainerText}"/>
+                </StackPanel>
+              </Grid>
+            </Expander>
+          </StackPanel>
+
+          <!-- Totals -->
+          <StackPanel Spacing="10" IsVisible="{Binding IsTotals}">
+            <TextBlock TextWrapping="Wrap" Classes="muted" Text="If one of these was misread, correct it to match the receipt image."/>
+            <Grid ColumnDefinitions="*,10,*" RowDefinitions="Auto,10,Auto">
+              <StackPanel>
+                <TextBlock Classes="label" Text="Subtotal"/>
+                <TextBox Text="{Binding SubtotalText}"/>
+              </StackPanel>
+              <StackPanel Grid.Column="2">
+                <TextBlock Classes="label" Text="Tax"/>
+                <TextBox Text="{Binding TaxText}"/>
+              </StackPanel>
+              <StackPanel Grid.Row="2">
+                <TextBlock Classes="label" Text="Total"/>
+                <TextBox Text="{Binding GrandTotalText}"/>
+              </StackPanel>
+              <StackPanel Grid.Row="2" Grid.Column="2">
+                <TextBlock Classes="label" Text="Number of items"/>
+                <TextBox Text="{Binding CountText}"/>
+              </StackPanel>
+            </Grid>
+          </StackPanel>
+
+          <Border Background="{StaticResource BadSoft}" CornerRadius="6" Padding="10,8" IsVisible="{Binding HasDetailError}">
+            <TextBlock Text="{Binding DetailError}" TextWrapping="Wrap" Foreground="{StaticResource Bad}"/>
+          </Border>
+
+          <!-- Actions -->
+          <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ShowsActions}">
+            <Button Classes="primary" Content="{Binding ConfirmLabel}" Command="{Binding Confirm}" IsDefault="True"/>
+            <Button Content="Skip" Command="{Binding SkipLine}"/>
+            <Button Content="Not for resale" Command="{Binding NotForResale}"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsTotals}">
+            <Button Classes="primary" Content="{Binding ConfirmLabel}" Command="{Binding Confirm}"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsUnreadable}">
+            <Button Classes="primary" Content="{Binding ConfirmLabel}" Command="{Binding Confirm}"/>
+            <Button Content="Ignore this line" Command="{Binding IgnoreUnreadable}"/>
+          </StackPanel>
+
+          <!-- Override -->
+          <Expander Header="These totals can't be matched" IsVisible="{Binding CanForce}" HorizontalAlignment="Stretch">
+            <StackPanel Spacing="8">
+              <TextBlock TextWrapping="Wrap" Classes="muted" Text="For a damaged or cut-off receipt. You'll need to check every line, and your reason is kept on record."/>
+              <TextBox Text="{Binding ForceText}" PlaceholderText="Why can't the totals be matched?" TextWrapping="Wrap" AcceptsReturn="False"/>
+              <Button Content="Continue without matching" Command="{Binding ForceExport}"/>
+            </StackPanel>
+          </Expander>
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+
+    <!-- Footer -->
+    <Border Grid.Row="2" Background="{StaticResource Card}" BorderBrush="{StaticResource Hairline}" BorderThickness="0,1,0,0" Padding="16,12">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <Button Classes="link" Foreground="{StaticResource Muted}" Content="{Binding DiscardLabel}" Command="{Binding Discard}" VerticalAlignment="Center"/>
+        <StackPanel Grid.Column="1" Margin="16,0" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="2">
+          <TextBlock Text="{Binding FooterText}" HorizontalAlignment="Right"/>
+          <TextBlock Text="{Binding PageError}" Foreground="{StaticResource Bad}" IsVisible="{Binding HasPageError}" TextWrapping="Wrap"/>
+        </StackPanel>
+        <Button Grid.Column="2" Classes="primary" Content="Create price file" Command="{Binding Export}" Padding="20,9"/>
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>

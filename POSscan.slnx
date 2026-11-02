@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/POSscan.App/POSscan.App.csproj" />
+    <Project Path="src/POSscan.Cli/POSscan.Cli.csproj" />
+    <Project Path="src/POSscan.Core/POSscan.Core.csproj" />
+    <Project Path="src/POSscan.Data/POSscan.Data.csproj" />
+    <Project Path="src/POSscan.Ocr/POSscan.Ocr.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/POSscan.Tests/POSscan.Tests.csproj" />
+    <Project Path="tests/POSscan.UiTests/POSscan.UiTests.csproj" />
+  </Folder>
+</Solution>

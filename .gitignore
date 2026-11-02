@@ -1,0 +1,10 @@
+bin/
+obj/
+publish/
+dist/
+
+# Real store documents stay out of this public repository
+*.pdf
+RAS Price Change List*.csv
+test-output/
+tests/POSscan.Tests/fixtures/
