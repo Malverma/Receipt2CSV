@@ -16,12 +16,18 @@ public sealed class FixVm(string label, Command run)
 }
 
 public sealed record RowVm(
-    RowKind Kind, int Line, string Title, string Subtitle, string Amount, string Status, IBrush StatusFg, IBrush StatusBg, ReviewLine? Review);
+    RowKind Kind, int Line, string Title, string Subtitle, string Amount, string Status, IBrush StatusFg, IBrush StatusBg, ReviewLine? Review)
+{
+    public string Code { get; init; } = "";
+    public string Quantity { get; init; } = "";
+    public bool HasCode => Code.Length > 0;
+    public bool HasSubtitle => Subtitle.Length > 0;
+}
 
 public sealed class ReviewVm : Vm
 {
     private const int TotalsLine = -100;
-    private const double BaseImageWidth = 396;
+    private const double MinZoom = 1, MaxZoom = 6;
 
     private static readonly IBrush WarnFg = Brush.Parse("#8A4B00"), WarnBg = Brush.Parse("#FFF4DC");
     private static readonly IBrush GoodFg = Brush.Parse("#0B6B3A"), GoodBg = Brush.Parse("#E3F6EA");
@@ -33,8 +39,9 @@ public sealed class ReviewVm : Vm
 
     private ManualConfirmVm? _manual;
     private RowVm? _selected;
-    private bool _isRebuilding, _discardArmed;
-    private double _zoom = 1;
+    private bool _isRebuilding, _discardArmed, _exportArmed;
+    private string _searchText = "", _appliedSearch = "";
+    private double _zoom = 1, _fitWidth = 396;
     private string? _detailError, _pageError;
     private string _code = "", _qty = "", _unit = "", _total = "", _group = "", _name = "", _sku = "", _upc = "", _listing = "", _container = "";
     private string _subtotal = "", _tax = "", _grandTotal = "", _count = "", _force = "";
@@ -77,13 +84,22 @@ public sealed class ReviewVm : Vm
         get
         {
             var r = Session.Review;
-            if (r.AttentionCount > 0) return r.AttentionCount == 1 ? "1 thing to check before you can create the file" : $"{r.AttentionCount} things to check before you can create the file";
+            if (_exportArmed) return EarlyFileText();
+            if (r.AttentionCount > 0 && !r.CanExportUnchecked) return r.AttentionCount == 1 ? "1 thing to check before you can create the file" : $"{r.AttentionCount} things to check before you can create the file";
+            if (r.AttentionCount > 0) return r.AttentionCount == 1 ? "1 thing still to check, or create the file now" : $"{r.AttentionCount} things still to check, or create the file now";
             int n = r.ToExport.Count();
             return n == 0 ? "No costs have changed, so there's nothing to send to Estream." : n == 1 ? "1 item is ready to update in Estream" : $"{n} items are ready to update in Estream";
         }
     }
 
     public bool CanExport => Session.Review.CanExport;
+    public bool CanCreateFile => Session.Review.CanExportUnchecked;
+    public string ExportLabel => _exportArmed ? "Create file anyway" : "Create price file";
+
+    public string SearchText { get => _searchText; set => Set(ref _searchText, value); }
+    public bool HasSearch => _appliedSearch.Length > 0;
+    public bool HasNoResults => HasSearch && Rows.Count == 0;
+    public string NoResultsText => $"No items match \"{_appliedSearch}\".";
     public string? PageError { get => _pageError; private set { if (Set(ref _pageError, value)) Raise(nameof(HasPageError)); } }
     public bool HasPageError => !string.IsNullOrEmpty(_pageError);
 
@@ -103,6 +119,7 @@ public sealed class ReviewVm : Vm
     public bool IsTotals => _selected?.Kind == RowKind.Totals;
     public bool IsUnreadable => _selected?.Kind == RowKind.Unreadable;
     public bool ShowsCodeAndPrice => IsItem || IsUnreadable;
+    public bool ShowsName => ShowsMapping || IsUnreadable;
     public bool IsGroup => _selected?.Review?.Item.GroupId is not null;
     public bool IsSingleAmount => IsItem && !IsGroup;
     public bool ShowsLineTotal => IsItem && !IsGroup && (_selected?.Review?.Item.Quantity != 1m || _selected?.Review?.Item.Unit == PriceUnit.Kg);
@@ -116,7 +133,7 @@ public sealed class ReviewVm : Vm
     public bool HasReasons => Reasons.Count > 0;
     public bool CanForce => IsTotals && !Session.Review.TotalsMatch;
     public string QuantityLabel => _selected?.Review?.Item.Unit == PriceUnit.Kg ? "Weight (kg)" : "Quantity";
-    public string PriceLabel => _selected?.Review?.Item.Unit == PriceUnit.Kg ? "Price per kg" : IsUnreadable ? "Price each" : "Price";
+    public string PriceLabel => _selected?.Review?.Item.Unit == PriceUnit.Kg ? "Price per kg" : "New unit cost";
     public string DetailTitle => _selected?.Title ?? "";
     public string CostSummary => BuildCostSummary();
     public string ConfirmLabel => IsTotals ? "Save totals" : IsUnreadable ? "Add as item" : _selected?.Review?.State == LineState.Attention ? "Confirm" : "Save";
@@ -140,7 +157,20 @@ public sealed class ReviewVm : Vm
     public string ForceText { get => _force; set => Set(ref _force, value); }
 
     // ---- Receipt image ----
-    public double ImageWidth => BaseImageWidth * _zoom;
+    /// <summary>The width that fills the receipt column, set by the view as the column is resized. Zoom 1 is this width.</summary>
+    public double FitWidth
+    {
+        get => _fitWidth;
+        set
+        {
+            value = Math.Max(120, value);
+            if (Math.Abs(value - _fitWidth) < 0.5) return;
+            _fitWidth = value;
+            RaiseImageSize();
+        }
+    }
+    public double Zoom => _zoom;
+    public double ImageWidth => _fitWidth * _zoom;
     public double ImageHeight => Session.Record.PageWidth > 0 ? ImageWidth * Session.Record.PageHeight / Session.Record.PageWidth : 0;
     private double Scale => Session.Record.PageWidth > 0 ? ImageWidth / Session.Record.PageWidth : 0;
     public double HighlightTop => HighlightSpan().Top * Scale - 3;
@@ -159,6 +189,8 @@ public sealed class ReviewVm : Vm
     public Command Discard { get; }
     public Command ZoomIn { get; }
     public Command ZoomOut { get; }
+    public Command Search { get; }
+    public Command ClearSearch { get; }
     public string DiscardLabel => _discardArmed ? "Click again to discard" : "Discard receipt";
 
     public ReviewVm(MainVm main, ReceiptSession session)
@@ -176,15 +208,44 @@ public sealed class ReviewVm : Vm
         RestoreResale = new Command(() => { Session.RemoveMapping(_selected!.Review!.Item.RawCode); Refresh(_selected.Line); });
         IgnoreUnreadable = new Command(() => ApplyToSelected(new ReceiptEdit(EditKind.IgnoreLine, _selected!.Line), moveOn: true));
         ForceExport = new Command(DoForce);
-        Export = new Command(DoExport, () => CanExport);
+        Export = new Command(DoExport, () => CanCreateFile);
+        Search = new Command(() => ApplySearch(SearchText));
+        ClearSearch = new Command(() => { SearchText = ""; ApplySearch(""); });
         Discard = new Command(DoDiscard);
-        ZoomIn = new Command(() => SetZoom(Math.Min(_zoom + 0.5, 3)));
-        ZoomOut = new Command(() => SetZoom(Math.Max(_zoom - 0.5, 1)));
+        ZoomIn = new Command(() => SetZoom(_zoom * 1.5));
+        ZoomOut = new Command(() => SetZoom(_zoom / 1.5));
         Refresh(null, selectFirstAttention: true);
         if (ManualConfirmation && !Session.ManualConfirmationDone) OpenManual();
     }
 
-    private void OpenManual() => Manual = new ManualConfirmVm(Session, Preview, CloseManual);
+    private void OpenManual() => Manual = new ManualConfirmVm(Session, Preview, CloseManual, () =>
+    {
+        CloseManual();
+        DoExport();
+    }, () => CanCreateFile);
+
+    private void ApplySearch(string search)
+    {
+        _appliedSearch = search.Trim();
+        Refresh(null, selectFirstAttention: true);
+    }
+
+    // The search looks at what's on the row, so it also finds lines that couldn't be read.
+    private bool FitsSearch(RowVm row) => !HasSearch
+        || (row.Review is { } line ? Core.Review.Matches(line, _appliedSearch)
+            : row.Kind == RowKind.Unreadable && Core.Review.MatchesText(_appliedSearch, row.Title, row.Subtitle));
+
+    private string EarlyFileText()
+    {
+        var r = Session.Review;
+        var parts = new List<string>();
+        int inFile = r.Unchecked.Count(), leftOut = r.LeftOut.Count() + r.Unreadable.Count;
+        if (inFile > 0) parts.Add(inFile == 1 ? "1 unchecked item goes in as read." : $"{inFile} unchecked items go in as read.");
+        if (leftOut > 0) parts.Add(leftOut == 1 ? "1 line is left out." : $"{leftOut} lines are left out.");
+        if (!r.TotalsMatch && !r.Forced) parts.Add("The totals aren't matched.");
+        parts.Add("Click again to create the file.");
+        return string.Join(" ", parts);
+    }
 
     private void CloseManual()
     {
@@ -193,12 +254,105 @@ public sealed class ReviewVm : Vm
         Refresh(null, selectFirstAttention: true);
     }
 
-    private void SetZoom(double zoom)
+    public void SetZoom(double zoom)
     {
+        zoom = Math.Clamp(zoom, MinZoom, MaxZoom);
+        if (Math.Abs(zoom - _zoom) < 0.001) return;
         _zoom = zoom;
+        RaiseImageSize();
+    }
+
+    private void RaiseImageSize()
+    {
+        Raise(nameof(Zoom));
         Raise(nameof(ImageWidth));
         Raise(nameof(ImageHeight));
         RaiseHighlight();
+    }
+
+    /// <summary>
+    /// Selects the row for whatever was clicked on the receipt image, <paramref name="y"/> being measured down the image
+    /// as shown. Returns false when the click isn't on anything that has a row, such as the store's address.
+    /// </summary>
+    public bool SelectAtImagePoint(double y)
+    {
+        if (Scale <= 0) return false;
+        var lines = Session.Record.Lines;
+        double pageY = y / Scale;
+        int hit = -1;
+        double best = double.MaxValue;
+        for (int i = 0; i < lines.Count; i++)
+        {
+            if (lines[i].Bottom <= lines[i].Top) continue;
+            // Inside a line wins outright; otherwise the nearest one, if the click landed in the gap between two.
+            double gap = pageY < lines[i].Top ? lines[i].Top - pageY : pageY > lines[i].Bottom ? pageY - lines[i].Bottom : 0;
+            if (gap < best) { best = gap; hit = i; }
+        }
+        if (hit < 0 || best > (lines[hit].Bottom - lines[hit].Top)) return false;
+
+        var row = RowForLine(hit);
+        if (row is null) return false;
+        if (!Rows.Contains(row))
+        {
+            // The search is hiding it, so drop the search rather than ignore the click.
+            SearchText = "";
+            _appliedSearch = "";
+            Refresh(row.Line);
+            row = Rows.FirstOrDefault(r => r.Line == row.Line && r.Kind == row.Kind);
+        }
+        else Selected = row;
+        return row is not null;
+    }
+
+    private RowVm? RowForLine(int line)
+    {
+        var all = AllRows();
+        if (all.FirstOrDefault(r => r.Kind == RowKind.Unreadable && r.Line == line) is { } unreadable) return unreadable;
+        int subtotal = SubtotalLineIndex();
+        if (subtotal >= 0 && line >= subtotal) return all.FirstOrDefault(r => r.Kind == RowKind.Totals);
+        // The item that starts at or above the click, as long as its block reaches down to it.
+        var owner = all.Where(r => r.Kind == RowKind.Item && r.Line <= line).MaxBy(r => r.Line);
+        return owner is not null && BlockEnd(owner.Line) >= line ? owner : null;
+    }
+
+    // The rows as shown, plus any the search is hiding.
+    private IEnumerable<RowVm> AllRows()
+    {
+        foreach (var r in Rows) yield return r;
+        if (!HasSearch) yield break;
+        foreach (var (line, text) in Session.Review.Unreadable)
+            yield return Rows.FirstOrDefault(r => r.Kind == RowKind.Unreadable && r.Line == line)
+                ?? new(RowKind.Unreadable, line, "Line couldn't be read", text, "", "Check", WarnFg, WarnBg, null);
+        foreach (var l in Session.Review.Lines)
+            yield return Rows.FirstOrDefault(r => r.Kind == RowKind.Item && r.Line == l.Item.SourceLine) ?? ToRow(l);
+        yield return Rows.FirstOrDefault(r => r.Kind == RowKind.Totals)
+            ?? new(RowKind.Totals, TotalsLine, "Receipt totals", "", "", "", PlainFg, PlainBg, null);
+    }
+
+    private int SubtotalLineIndex()
+    {
+        var lines = Session.Record.Lines;
+        for (int i = 0; i < lines.Count; i++)
+            if (SuperstoreParser.IsSubtotal(lines[i].Text)) return i;
+        return -1;
+    }
+
+    /// <summary>
+    /// The last receipt line that belongs to the item starting at <paramref name="first"/>: its quantity, deposit and
+    /// recycling rows, up to the next item, department heading, unreadable line or the subtotal.
+    /// </summary>
+    private int BlockEnd(int first)
+    {
+        var lines = Session.Record.Lines;
+        var starts = Session.Review.Lines.Select(l => l.Item.SourceLine).Concat(Session.Review.Unreadable.Select(u => u.Line)).ToHashSet();
+        int subtotal = SubtotalLineIndex();
+        int last = first;
+        for (int i = first + 1; i < lines.Count && i <= first + 8; i++)
+        {
+            if (starts.Contains(i) || i == subtotal || SuperstoreParser.IsDepartment(lines[i].Text)) break;
+            if (lines[i].Text.Trim().Length > 0) last = i;
+        }
+        return last;
     }
 
     private void RaiseHighlight()
@@ -219,8 +373,7 @@ public sealed class ReviewVm : Vm
         }
         int first = _selected.Line;
         if (first < 0 || first >= lines.Count) return (0, 0);
-        // Include the price line under a two-line item.
-        int last = _selected.Review?.Item is { HasPrefixQuantity: true } or { Unit: PriceUnit.Kg } && first + 1 < lines.Count ? first + 1 : first;
+        int last = _selected.Kind == RowKind.Item ? BlockEnd(first) : first;
         return (lines[first].Top, lines[last].Bottom - lines[first].Top);
     }
 
@@ -236,6 +389,7 @@ public sealed class ReviewVm : Vm
     private void Refresh(int? keepLine, bool selectFirstAttention = false)
     {
         _isRebuilding = true;
+        _exportArmed = false;
         var review = Session.Review;
         Rows.Clear();
         var attention = new List<RowVm>();
@@ -247,23 +401,26 @@ public sealed class ReviewVm : Vm
             attention.Add(new(RowKind.Unreadable, line, "Line couldn't be read", text, "", "Check", WarnFg, WarnBg, null));
 
         var rows = review.Lines.Select(ToRow).ToList();
-        if (!review.TotalsMatch && !review.Forced) Rows.Add(totals);
-        foreach (var r in attention) Rows.Add(r);
-        foreach (var r in rows.Where(r => r.Review!.State == LineState.Attention)) Rows.Add(r);
-        foreach (var r in rows.Where(r => r.Review!.State == LineState.Ready)) Rows.Add(r);
-        foreach (var r in rows.Where(r => r.Review!.State == LineState.ByHand)) Rows.Add(r);
-        foreach (var r in rows.Where(r => r.Review!.State == LineState.NoChange)) Rows.Add(r);
-        foreach (var r in rows.Where(r => r.Review!.State is LineState.Skipped or LineState.NotForResale)) Rows.Add(r);
-        if (review.TotalsMatch || review.Forced) Rows.Add(totals);
+        var ordered = new List<RowVm>();
+        if (!review.TotalsMatch && !review.Forced) ordered.Add(totals);
+        ordered.AddRange(attention);
+        ordered.AddRange(rows.Where(r => r.Review!.State == LineState.Attention));
+        ordered.AddRange(rows.Where(r => r.Review!.State == LineState.Ready));
+        ordered.AddRange(rows.Where(r => r.Review!.State == LineState.ByHand));
+        ordered.AddRange(rows.Where(r => r.Review!.State == LineState.NoChange));
+        ordered.AddRange(rows.Where(r => r.Review!.State is LineState.Skipped or LineState.NotForResale));
+        if (review.TotalsMatch || review.Forced) ordered.Add(totals);
+        foreach (var r in ordered.Where(FitsSearch)) Rows.Add(r);
         _isRebuilding = false;
 
         RowVm? next = keepLine is { } k ? Rows.FirstOrDefault(r => r.Line == k) : null;
         if (selectFirstAttention || next is null) next = Rows.FirstOrDefault(NeedsAttention) ?? next ?? Rows.FirstOrDefault();
         _selected = null;
         Selected = next;
+        if (next is null) LoadDetail(); // Setting null over null doesn't load, and a search can leave no rows.
         Raise(nameof(Selected));
 
-        foreach (var p in new[] { nameof(TotalsChip), nameof(TotalsFg), nameof(TotalsBg), nameof(FooterText), nameof(CanExport), nameof(HeaderDate) }) Raise(p);
+        foreach (var p in new[] { nameof(TotalsChip), nameof(TotalsFg), nameof(TotalsBg), nameof(FooterText), nameof(CanExport), nameof(CanCreateFile), nameof(ExportLabel), nameof(HeaderDate), nameof(HasSearch), nameof(HasNoResults), nameof(NoResultsText) }) Raise(p);
         Export.Refresh();
     }
 
@@ -278,17 +435,18 @@ public sealed class ReviewVm : Vm
     {
         var (status, fg, bg) = l.State switch
         {
-            LineState.Attention => (l.IsNew && l.Reasons.Count == 1 && l.Reasons[0].StartsWith("New", StringComparison.Ordinal) ? "New" : "Check", WarnFg, WarnBg),
+            LineState.Attention => ("Check", WarnFg, WarnBg),
+            LineState.Ready or LineState.NoChange when l.IsChecked => ("Checked", GoodFg, GoodBg),
             LineState.Ready => ("Ready", GoodFg, GoodBg),
             LineState.ByHand => ("By hand", InfoFg, InfoBg),
             LineState.NoChange => ("No change", PlainFg, PlainBg),
             LineState.Skipped => ("Skipped", PlainFg, PlainBg),
             _ => ("Not for resale", PlainFg, PlainBg),
         };
-        var qty = l.Item.Unit == PriceUnit.Kg ? $"{l.Item.Quantity:0.###} kg" : $"Qty {l.Item.Quantity:0.###}";
+        var qty = l.Item.Unit == PriceUnit.Kg ? $"{l.Item.Quantity:0.###} kg" : $"{l.Item.Quantity:0.###}";
         var amount = l.Cost is { } c ? (l.Item.Unit == PriceUnit.Kg ? $"{c:0.00}/kg" : $"{c:0.00}") : "?";
         var title = l.DisplayName.Length > 0 ? l.DisplayName : "(no name)";
-        return new(RowKind.Item, l.Item.SourceLine, title, $"{l.Item.RawCode}  ·  {qty}", amount, status, fg, bg, l);
+        return new(RowKind.Item, l.Item.SourceLine, title, "", amount, status, fg, bg, l) { Code = l.Item.RawCode, Quantity = qty };
     }
 
     private void LoadDetail()
@@ -335,7 +493,7 @@ public sealed class ReviewVm : Vm
         }
         foreach (var p in new[]
         {
-            nameof(HasSelection), nameof(IsItem), nameof(IsTotals), nameof(IsUnreadable), nameof(ShowsCodeAndPrice), nameof(IsGroup), nameof(IsSingleAmount),
+            nameof(HasSelection), nameof(IsItem), nameof(IsTotals), nameof(IsUnreadable), nameof(ShowsCodeAndPrice), nameof(ShowsName), nameof(IsGroup), nameof(IsSingleAmount),
             nameof(ShowsLineTotal), nameof(ShowsMapping), nameof(IsSkipped), nameof(IsNotForResale), nameof(ShowsActions), nameof(HasFixes), nameof(HasReasons),
             nameof(CanForce), nameof(QuantityLabel), nameof(PriceLabel), nameof(DetailTitle), nameof(CostSummary), nameof(ConfirmLabel),
         }) Raise(p);
@@ -383,7 +541,7 @@ public sealed class ReviewVm : Vm
         }
         else
         {
-            if (Changed(UnitText, item.UnitPrice, out var unit, "price")) edits.Add(new(EditKind.SetUnitPrice, line, Str(unit)));
+            if (Changed(UnitText, item.UnitPrice, out var unit, "new unit cost")) edits.Add(new(EditKind.SetUnitPrice, line, Str(unit)));
             if (ShowsLineTotal && Changed(TotalText, item.LineTotal, out var lt, "line total")) edits.Add(new(EditKind.SetLineTotal, line, Str(lt)));
         }
         if (HasDetailError) return;
@@ -400,7 +558,7 @@ public sealed class ReviewVm : Vm
 
             if (Upc.Classify(code) == CodeKind.Unknown)
             {
-                DetailError = "The item code should be digits only. Check it against the receipt image.";
+                DetailError = "The UPC on the receipt should be digits only. Check it against the receipt image.";
                 return;
             }
             if (NameText.Trim().Length == 0) { DetailError = "Enter the item's name."; return; }
@@ -444,12 +602,12 @@ public sealed class ReviewVm : Vm
     {
         if (NameText.Trim().Length == 0 || CodeText.Trim().Length == 0)
         {
-            DetailError = "Enter a code and name, or choose Ignore this line.";
+            DetailError = "Enter a UPC and name, or choose Ignore this line.";
             return;
         }
         if (!TryDec(QuantityText, out var qty) || !TryDec(UnitText, out var price))
         {
-            DetailError = "Check the quantity and price. They should be numbers.";
+            DetailError = "Check the new unit cost and quantity. They should be numbers.";
             return;
         }
         ApplyToSelected(new ReceiptEdit(EditKind.AddItem, row.Line, CodeText.Trim(), NameText.Trim(), qty, price));
@@ -478,9 +636,18 @@ public sealed class ReviewVm : Vm
     private void DoExport()
     {
         PageError = null;
+        // Creating a file before everything's checked takes a second click, once the footer has said what that means.
+        bool early = !Session.Review.CanExport;
+        if (early && !_exportArmed)
+        {
+            _exportArmed = true;
+            Raise(nameof(FooterText));
+            Raise(nameof(ExportLabel));
+            return;
+        }
         try
         {
-            var outcome = Session.Export();
+            var outcome = Session.Export(includeUnchecked: early);
             _main.ShowDone(Session.Record, outcome);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException)

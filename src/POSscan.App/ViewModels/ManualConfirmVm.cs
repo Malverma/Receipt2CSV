@@ -17,6 +17,7 @@ public sealed class ManualConfirmVm : Vm
     private string _text = "";
     private string? _error;
     private IImage? _clip;
+    private string _search = "";
 
     public string Title => IsFinished ? "All lines checked" : ManualConfirmation.Title(_session.Receipt, Step);
     public string Progress => IsFinished ? "" : $"Line {_index + 1} of {_steps.Count}";
@@ -35,6 +36,7 @@ public sealed class ManualConfirmVm : Vm
     }
     public bool HasWarning => !string.IsNullOrEmpty(Warning);
     public string Text { get => _text; set => Set(ref _text, value); }
+    public string SearchText { get => _search; set => Set(ref _search, value); }
     public string? Error { get => _error; private set { if (Set(ref _error, value)) Raise(nameof(HasError)); } }
     public bool HasError => !string.IsNullOrEmpty(_error);
     public IImage? Clip { get => _clip; private set { if (Set(ref _clip, value)) Raise(nameof(HasClip)); } }
@@ -57,11 +59,13 @@ public sealed class ManualConfirmVm : Vm
     public Command Previous { get; }
     public Command SkipStep { get; }
     public Command Close { get; }
+    public Command Search { get; }
+    public Command CreateFile { get; }
 
     /// <summary>Raised when the box shows a new line, so the view can put the cursor in it.</summary>
     public event Action? LineShown;
 
-    public ManualConfirmVm(ReceiptSession session, Bitmap? preview, Action close)
+    public ManualConfirmVm(ReceiptSession session, Bitmap? preview, Action close, Action createFile, Func<bool> canCreateFile)
     {
         _session = session;
         _preview = preview;
@@ -71,6 +75,8 @@ public sealed class ManualConfirmVm : Vm
         Previous = new Command(() => Show(_index - 1), () => _index > 0);
         SkipStep = new Command(() => Show(_index + 1));
         Close = new Command(close);
+        Search = new Command(DoSearch);
+        CreateFile = new Command(createFile, canCreateFile);
         Show(0);
     }
 
@@ -83,15 +89,33 @@ public sealed class ManualConfirmVm : Vm
         if (Error is null) Show(_index + 1);
     }
 
+    // Goes to the next item that fits, so pressing Search again moves on to the one after it. The line on screen isn't saved.
+    private void DoSearch()
+    {
+        var search = SearchText.Trim();
+        if (search.Length == 0) return;
+        for (int offset = 1; offset <= _steps.Count; offset++)
+        {
+            int index = (Math.Min(_index, _steps.Count - 1) + offset) % _steps.Count;
+            if (_steps[index].Kind != ConfirmKind.Item) continue;
+            var line = _session.Review.Lines.FirstOrDefault(l => l.Item.SourceLine == _steps[index].Line);
+            if (line is null || !Review.Matches(line, search)) continue;
+            Show(index);
+            return;
+        }
+        Error = $"No item on this receipt matches \"{search}\".";
+    }
+
     private void Show(int index)
     {
         _index = Math.Clamp(index, 0, _steps.Count);
         Error = null;
         if (IsFinished) _session.MarkManualConfirmationDone();
-        Text = IsFinished ? "" : ManualConfirmation.Format(_session.Receipt, Step);
+        Text = IsFinished ? "" : _session.FormatStep(Step);
         Clip = IsFinished ? null : MakeClip();
         foreach (var p in new[] { nameof(Title), nameof(Progress), nameof(Hint), nameof(HasHint), nameof(Warning), nameof(HasWarning), nameof(IsFinished), nameof(IsWorking), nameof(FinishText) }) Raise(p);
         Previous.Refresh();
+        CreateFile.Refresh();
         LineShown?.Invoke();
     }
 

@@ -13,7 +13,8 @@ public sealed record ConfirmInput(IReadOnlyList<ReceiptEdit> Edits, string? Erro
 }
 
 /// <summary>
-/// Goes down a receipt one line at a time, with every number on a line in one text box: "06870011200  4 @ 5.05".
+/// Goes down a receipt one line at a time, with everything on a line in one text box, in the order the store
+/// reads it: UPC, item name, new unit cost, quantity. "06870011200  HOMO MILK  5.05 x 4".
 /// Line totals aren't asked for. They follow from the quantity and price, and the subtotal check covers the result.
 /// </summary>
 public static class ManualConfirmation
@@ -39,7 +40,7 @@ public static class ManualConfirmation
 
     public static string Title(ParsedReceipt r, ConfirmStep s) => s.Kind switch
     {
-        ConfirmKind.Item => Item(r, s) is { Name.Length: > 0 } i ? i.Name : "(no name)",
+        ConfirmKind.Item => "Check this item",
         ConfirmKind.GroupTotal => "Total for the multi-buy above",
         ConfirmKind.Fees => $"Fees on {Item(r, s)?.Name}",
         ConfirmKind.Discount => $"Discount on {Item(r, s)?.Name}",
@@ -49,7 +50,8 @@ public static class ManualConfirmation
         _ => "Number of items",
     };
 
-    public static string Format(ParsedReceipt r, ConfirmStep s)
+    /// <param name="shownName">The item's saved name, if it has one. Otherwise the name on the receipt is shown.</param>
+    public static string Format(ParsedReceipt r, ConfirmStep s, string? shownName = null)
     {
         if (s.Kind != ConfirmKind.Item) return s.Kind switch
         {
@@ -63,15 +65,17 @@ public static class ManualConfirmation
         };
         if (Item(r, s) is not { } i) return "";
         var qty = i.Quantity.ToString("0.###", CultureInfo.InvariantCulture);
-        return i.GroupId is not null ? $"{i.RawCode}  {qty}" : $"{i.RawCode}  {qty} @ {Money(i.UnitPrice)}";
+        var name = OneLine(shownName ?? i.Name);
+        var start = name.Length > 0 ? $"{i.RawCode}  {name}" : i.RawCode;
+        return i.GroupId is not null ? $"{start}  x {qty}" : $"{start}  {Money(i.UnitPrice)} x {qty}";
     }
 
     public static string Hint(ParsedReceipt r, ConfirmStep s)
     {
         if (s.Kind != ConfirmKind.Item) return "";
         if (Item(r, s) is not { } i) return "";
-        return i.GroupId is not null ? "Item code, then quantity"
-            : i.Unit == PriceUnit.Kg ? "Item code, then weight in kg @ price per kg" : "Item code, then quantity @ price";
+        return i.GroupId is not null ? "UPC, item name, x quantity"
+            : i.Unit == PriceUnit.Kg ? "UPC, item name, new cost per kg x weight in kg" : "UPC, item name, new unit cost x quantity";
     }
 
     /// <summary>Warns before Enter replaces a printed line total that doesn't follow from the quantity and price.</summary>
@@ -84,7 +88,7 @@ public static class ManualConfirmation
             : null;
     }
 
-    public static ConfirmInput Read(ParsedReceipt r, ConfirmStep s, string text)
+    public static ConfirmInput Read(ParsedReceipt r, ConfirmStep s, string text, string? shownName = null)
     {
         var edit = s.Kind switch
         {
@@ -97,7 +101,7 @@ public static class ManualConfirmation
             ConfirmKind.ItemCount => EditKind.SetItemCount,
             _ => (EditKind?)null,
         };
-        if (edit is not { } kind) return ReadItem(r, s, text);
+        if (edit is not { } kind) return ReadItem(r, s, text, shownName);
 
         var clean = text.Replace("$", "").Trim();
         if (clean.Length == 0)
@@ -109,26 +113,39 @@ public static class ManualConfirmation
             ? new([], null) : new([new ReceiptEdit(kind, s.Line, Str(value))], null);
     }
 
-    private static ConfirmInput ReadItem(ParsedReceipt r, ConfirmStep s, string text)
+    private static ConfirmInput ReadItem(ParsedReceipt r, ConfirmStep s, string text, string? shownName)
     {
         if (Item(r, s) is not { } i) return new([], null);
-        var parts = text.Replace("@", " ").Replace("$", "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var parts = text.Replace("$", "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
         bool grouped = i.GroupId is not null;
 
         if (parts.Length == 0) return ConfirmInput.Fail("Type the numbers shown on the receipt.");
-        if (Upc.Classify(parts[0]) == CodeKind.Unknown) return ConfirmInput.Fail("The item code should be digits only. Check it against the receipt.");
-        if (parts.Length == 1) return ConfirmInput.Fail(grouped ? "Add the quantity after the item code." : "Add the quantity and price after the item code.");
-        if (!TryDec(parts[1], out var qty) || qty <= 0) return ConfirmInput.Fail("The quantity should be a number above zero.");
-        if (grouped ? parts.Length > 2 : parts.Length > 3) return ConfirmInput.Fail(grouped ? "This line should only have an item code and a quantity." : "This line should only have an item code, a quantity, and a price.");
+        if (Upc.Classify(parts[0]) == CodeKind.Unknown) return ConfirmInput.Fail("The UPC should be digits only. Check it against the receipt.");
+        int x = Array.FindLastIndex(parts, p => p is "x" or "X");
+        if (x < 0) return ConfirmInput.Fail(grouped ? "End the line with x and the quantity, such as x 4." : "End the line with the new unit cost, x, and the quantity, such as 5.05 x 4.");
+        if (x != parts.Length - 2) return ConfirmInput.Fail("Only the quantity goes after the x.");
+        if (!TryDec(parts[^1], out var qty) || qty <= 0) return ConfirmInput.Fail("The quantity should be a number above zero.");
+
+        int nameEnd = x;
+        decimal price = 0m;
+        if (!grouped)
+        {
+            // Requiring the decimal point keeps a number at the end of a name from being taken as the cost.
+            if (x < 2 || !parts[x - 1].Contains('.') || !TryDec(parts[x - 1], out price))
+                return ConfirmInput.Fail("Type the new unit cost before the x, such as 5.05.");
+            if (price < 0 && i.UnitPrice >= 0) return ConfirmInput.Fail("The new unit cost can't be negative.");
+            nameEnd = x - 1;
+        }
+        var nameParts = parts[1..nameEnd];
+        if (nameParts.Length > 0 && nameParts.All(p => TryDec(p, out _)))
+            return ConfirmInput.Fail(grouped ? "This line should only have a UPC, an item name, and a quantity." : "This line should only have a UPC, an item name, a new unit cost, and a quantity.");
 
         var edits = new List<ReceiptEdit>();
         if (parts[0] != i.RawCode) edits.Add(new(EditKind.SetCode, i.SourceLine, parts[0]));
+        var name = string.Join(' ', nameParts);
+        if (name.Length > 0 && name != OneLine(shownName ?? i.Name)) edits.Add(new(EditKind.SetName, i.SourceLine, name));
         if (qty != i.Quantity) edits.Add(new(EditKind.SetQuantity, i.SourceLine, Str(qty)));
         if (grouped) return new(edits, null);
-
-        if (parts.Length == 2) return ConfirmInput.Fail("Type the price after the @.");
-        if (!TryDec(parts[2], out var price)) return ConfirmInput.Fail("The price should be a number, such as 5.05.");
-        if (price < 0 && i.UnitPrice >= 0) return ConfirmInput.Fail("The price can't be negative.");
 
         if (price != i.UnitPrice) edits.Add(new(EditKind.SetUnitPrice, i.SourceLine, Str(price)));
         var expected = Round(qty * price);
@@ -136,6 +153,8 @@ public static class ManualConfirmation
             edits.Add(new(EditKind.SetLineTotal, i.SourceLine, Str(expected)));
         return new(edits, null);
     }
+
+    private static string OneLine(string name) => string.Join(' ', name.Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
     private static ReceiptItem? Item(ParsedReceipt r, ConfirmStep s) => r.Items.FirstOrDefault(i => i.SourceLine == s.Line);
     private static MultiBuyGroup? Group(ParsedReceipt r, ConfirmStep s) => r.Groups.FirstOrDefault(g => g.SourceLine == s.Line);

@@ -8,6 +8,10 @@
       <TextBlock Classes="h1" Text="Your price file is ready"/>
       <TextBlock Classes="muted" Text="{Binding Summary}"/>
 
+      <Border Background="{StaticResource WarnSoft}" CornerRadius="6" Padding="12,10" IsVisible="{Binding HasWarning}">
+        <TextBlock Text="{Binding Warning}" TextWrapping="Wrap" Foreground="{StaticResource Warn}"/>
+      </Border>
+
       <Border Classes="card" Padding="16">
         <Grid ColumnDefinitions="*,Auto">
           <StackPanel Spacing="2">
@@ -30,7 +34,7 @@
       <Border Classes="card" Padding="16" IsVisible="{Binding HasByHand}">
         <StackPanel Spacing="6">
           <TextBlock Classes="h2" Text="Enter these by hand"/>
-          <TextBlock Classes="muted" TextWrapping="Wrap" Text="Items sold by weight aren't in the file."/>
+          <TextBlock Classes="muted" TextWrapping="Wrap" Text="These aren't in the file, so update them in Estream yourself."/>
           <ItemsControl ItemsSource="{Binding ByHand}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="x:String"><TextBlock Text="{Binding}" Margin="0,2"/></DataTemplate>

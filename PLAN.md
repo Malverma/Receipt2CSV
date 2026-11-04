@@ -38,7 +38,7 @@ The design is in `spec.md`. This file tracks what's built and what's next.
 
 ## Next steps
 
-1. **Store:** run `dist/POSscan-Setup-1.1.0.exe` on the store PC.
+1. **Store:** run `dist/POSscan-Setup-1.2.0.exe` on the store PC.
 2. **Store:** run `milestone0/README.md` on a backed-up System 5.
 3. **Store:** save Superstore receipts as they come in. Once there are about 30, run the accuracy test in spec section 12.
 4. Confirm the receipt-to-UPC rule against about 10 real products.
@@ -88,13 +88,41 @@ Set by the store on 2026-11-02:
 
 ## Manual Confirmation
 
-A toggle in the review screen's header. Turning it on opens a popup that goes down the receipt in order: each item, its fees and discounts, multi-buy totals, then the subtotal, tax, total, and item count. Each line shows its part of the scan and one text box, such as `06870011200  4 @ 5.05`.
+A toggle in the review screen's header. Turning it on opens a popup that goes down the receipt in order: each item, its fees and discounts, multi-buy totals, then the subtotal, tax, total, and item count. Each line shows its part of the scan and one text box in the order UPC, item name, new unit cost, quantity, such as `06870011200  HOMO MILK  5.05 x 4`.
 
 - Enter saves the line and moves on. Esc closes the popup. Lines already confirmed stay saved.
 - Confirming a line counts as checking it, and sets up a new item if its code gives a UPC. In-store and produce codes still need a SKU on the main screen.
 - The line total is worked out from the quantity and price, and a warning shows first if the receipt printed something else.
 - The toggle is remembered, so each receipt opens the popup until it's been finished once. Turn the toggle off and on to go through a receipt again.
 - Lines that couldn't be read aren't in the popup. They stay on the main screen.
+- Search above the line jumps to the next item that fits, without saving the line on screen.
+
+## Review screen
+
+Set by the store on 2026-11-02:
+
+- Items show in the order UPC, item name, new unit cost, quantity. The CSV keeps the layout Estream imports.
+- An item that needs a look says **Check**, and turns to a green **Checked** once a person confirms or changes it. Opening it isn't enough. Lines that never needed a look keep Ready or No change, and Skipped, Not for resale, and By hand keep their labels.
+- Search above the list filters it by name, UPC, or SKU.
+- Clicking a line on the receipt image selects its item in the list, and outlines the item with its fee rows on the image.
+- The scroll wheel zooms the image where the pointer is, double-click zooms in or back out, and dragging moves around. Zoom 1 fits the column.
+- The bars between the image, the list, and the details panel drag to resize them.
+
+## Creating a file before everything's checked
+
+**Create price file** works once at least one item can go in, and **Create file now** does the same from the popup. If anything is unchecked, the footer says what will happen and the file takes a second click.
+
+- Unchecked items go in as read. New items use their UPC and receipt name, and aren't saved as known items, so they're flagged again next time.
+- Left out, and listed on the finished screen: lines with no cost, an unreadable code, no SKU or UPC, a code one digit from a known item, a newer receipt's cost, or a weighed item that's flagged, plus lines that couldn't be read.
+- The finished screen warns about the unchecked items, and the audit log records `exported-unchecked`.
+
+## Dollar signs read as 8
+
+"3 @ $5.00 15.00" can arrive as "3 @ 85.00 15.00". The parser drops the price's first digit only when that makes quantity x price match the line total, to within a cent for deals like 3 for $10.00. Any other disagreement is left as printed and flagged, with the line total worked out from the price offered as a fix. Either number could be the misread one: on a real receipt "3 @ $3.50 10.50" lost the 1 of its total, and working the price out from "0.50" gave 0.17.
+
+## Fees and show-through
+
+The back of the receipt paper can show through as stray words on a row. Everything between an item and the next item, department heading, or subtotal belongs to that item, so a `RECYCLING FEE` or `DEPOSIT 1` label is still read with junk after it, and its amount is taken from the end of the label row or one of the next two rows. A quantity row with any amount of show-through is read only when quantity x price equals its total exactly.
 
 ## Where the app keeps data
 

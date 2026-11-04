@@ -16,6 +16,10 @@ public sealed record ReviewLine
     public ItemMapping? Mapping { get; init; }
     public decimal? Cost { get; init; }
     public decimal? OldCost { get; init; }
+    /// <summary>A person confirmed or changed this line.</summary>
+    public bool IsChecked { get; init; }
+    /// <summary>Why this line stays out of a file created before it's been checked. Null if it can go in as read.</summary>
+    public string? LeftOutBecause { get; init; }
     public bool IsNew => Mapping is null;
     public string DisplayName => Mapping is { EstreamName.Length: > 0 } m ? m.EstreamName : Item.Name;
 }
@@ -42,6 +46,10 @@ public sealed class ReviewResult
         Lines.Count(l => l.State == LineState.Attention) + Unreadable.Count + (TotalsMatch || Forced ? 0 : 1);
     public IEnumerable<ReviewLine> ToExport => Lines.Where(l => l.State == LineState.Ready);
     public bool CanExport => AttentionCount == 0 && ToExport.Any();
+    /// <summary>Lines still to check that can go in a file as read. A line whose cost hasn't changed has nothing to send.</summary>
+    public IEnumerable<ReviewLine> Unchecked => Lines.Where(l => l.State == LineState.Attention && l.LeftOutBecause is null && l.Cost != l.OldCost);
+    public IEnumerable<ReviewLine> LeftOut => Lines.Where(l => l.State == LineState.Attention && l.LeftOutBecause is not null);
+    public bool CanExportUnchecked => ToExport.Any() || Unchecked.Any();
 }
 
 public static class Review
@@ -100,7 +108,7 @@ public static class Review
         var match = matcher.Match(item.RawCode);
         var cost = r.ActualUnitCost(item);
         var price = prices(item.RawCode);
-        var line = new ReviewLine { Item = item, State = LineState.Ready, Mapping = match.Mapping, Cost = cost, OldCost = price.LastCost };
+        var line = new ReviewLine { Item = item, State = LineState.Ready, Mapping = match.Mapping, Cost = cost, OldCost = price.LastCost, IsChecked = d.Checked.Contains(item.SourceLine) };
 
         if (d.Skipped.Contains(item.SourceLine)) return line with { State = LineState.Skipped };
         if (match.Mapping?.NotForResale == true) return line with { State = LineState.NotForResale };
@@ -123,7 +131,7 @@ public static class Review
         bool weighedByHand = item.Unit == PriceUnit.Kg && !settings.ExportWeighed;
         if (weighedByHand)
             return reasons.Count > 0
-                ? line with { State = LineState.Attention, Reasons = reasons, Fixes = fixes }
+                ? line with { State = LineState.Attention, Reasons = reasons, Fixes = fixes, LeftOutBecause = "sold by weight" }
                 : line with { State = LineState.ByHand };
 
         if (match.Kind == MatchKind.NearMiss)
@@ -150,9 +158,22 @@ public static class Review
                 reasons.Add("The receipt's totals don't match, so every line needs checking.");
         }
 
-        if (reasons.Count > 0) return line with { State = LineState.Attention, Reasons = reasons, Fixes = fixes };
+        if (reasons.Count > 0) return line with { State = LineState.Attention, Reasons = reasons, Fixes = fixes, LeftOutBecause = WhyLeftOut(item, match, cost, price) };
         if (price.LastCost is { } known && known == cost) return line with { State = LineState.NoChange };
         return line;
+    }
+
+    // A file created early takes what was read, except what Estream couldn't use or what's likely to change the wrong item.
+    private static string? WhyLeftOut(ReceiptItem item, MatchResult match, decimal? cost, PriceLookup price)
+    {
+        var mapping = match.Mapping ?? NewMappingDraft(item);
+        if (cost is not > 0m) return "no cost was read";
+        if (item.CodeKind == CodeKind.Unknown) return "the code couldn't be read";
+        if (match.Kind == MatchKind.NearMiss) return "the code may be misread";
+        if (mapping.Sku.Length == 0 && mapping.Upc.Length == 0) return "it needs an Estream SKU or UPC";
+        if (mapping.EstreamName.Length == 0) return "it has no name";
+        if (price.HasNewerReceipt) return "a newer receipt already has a cost for it";
+        return null;
     }
 
     /// <summary>Lines for one Estream item at different costs all take the highest, and the review screen says so.</summary>
@@ -176,15 +197,29 @@ public static class Review
         l.Mapping is { Sku.Length: > 0 } m ? "S" + m.Sku : "U" + (l.Mapping?.Upc ?? l.Item.RawCode);
 
     /// <summary>The rows for the CSV. A line that repeats an item at the same cost becomes a single row.</summary>
-    public static List<BatchRow> ToBatch(ReviewResult review, string supplier)
+    /// <param name="includeUnchecked">Adds the lines still to check, as read. A new item uses its draft, which isn't saved.</param>
+    public static List<BatchRow> ToBatch(ReviewResult review, string supplier, bool includeUnchecked = false)
     {
-        if (!review.CanExport) throw new InvalidOperationException("This receipt still has lines to check.");
-        return review.ToExport
-            .GroupBy(ExportKey).Select(g => g.First())
-            .Select(l => new BatchRow(
-                l.Mapping!.ListingCode, l.Mapping.Sku, l.Mapping.Upc, l.Mapping.EstreamName, l.Mapping.Container,
-                l.Cost!.Value, l.OldCost ?? l.Cost.Value, supplier))
+        if (!includeUnchecked && !review.CanExport) throw new InvalidOperationException("This receipt still has lines to check.");
+        var lines = includeUnchecked ? review.ToExport.Concat(review.Unchecked) : review.ToExport;
+        return lines
+            .Select(l => (Line: l, Mapping: l.Mapping ?? NewMappingDraft(l.Item)))
+            .GroupBy(x => x.Mapping.Sku.Length > 0 ? "S" + x.Mapping.Sku : "U" + x.Mapping.Upc)
+            .Select(g => g.MaxBy(x => x.Line.Cost))
+            .Select(x => new BatchRow(
+                x.Mapping.ListingCode, x.Mapping.Sku, x.Mapping.Upc, x.Mapping.EstreamName, x.Mapping.Container,
+                x.Line.Cost!.Value, x.Line.OldCost ?? x.Line.Cost.Value, supplier))
             .ToList();
+    }
+
+    /// <summary>Whether a line fits a search. Every word has to appear in its name, code, SKU, or UPC.</summary>
+    public static bool Matches(ReviewLine l, string search) =>
+        MatchesText(search, l.DisplayName, l.Item.Name, l.Item.RawCode, l.Mapping?.Sku, l.Mapping?.Upc);
+
+    public static bool MatchesText(string search, params string?[] fields)
+    {
+        var text = string.Join(' ', fields);
+        return search.Split(' ', StringSplitOptions.RemoveEmptyEntries).All(w => text.Contains(w, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>A starting point for the new-item form. Names on receipts are cut off, so a person edits this.</summary>

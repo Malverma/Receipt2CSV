@@ -15,9 +15,11 @@ public static partial class SuperstoreParser
     [GeneratedRegex(@"^\d{1,2}\s*[-.]*\s*[A-Za-z][A-Za-z ]{2,}$")] private static partial Regex Dept();
     [GeneratedRegex(@"^SUB\s*T", RegexOptions.IgnoreCase)] private static partial Regex SubtotalLine();
     [GeneratedRegex(@"^t[o0]ta[l1]\b", RegexOptions.IgnoreCase)] private static partial Regex TotalLine();
-    [GeneratedRegex(@"^re?c.*\bf[e3].?$", RegexOptions.IgnoreCase)] private static partial Regex Recycling();
-    [GeneratedRegex(@"^dep[o0]s[a-z0-9]+\s*\d?$", RegexOptions.IgnoreCase)] private static partial Regex Deposit();
-    [GeneratedRegex(@"^\S*\d[.,]\d\d\s+(\d{1,3}[.,]\d\d)$")] private static partial Regex FeeAmount();
+    // "RECYCLING FEE" or "DEPOSIT 1", then whatever follows on the row: its rate and amount, or text showing through from the back.
+    [GeneratedRegex(@"^(?:re?c[a-z0-9 ]{0,12}?\s*f[e3]{1,2}\S*|dep[o0]s[a-z0-9.]*(?:\s+\d\b)?)(.*)$", RegexOptions.IgnoreCase)] private static partial Regex FeeLabel();
+    [GeneratedRegex(@"^\d{1,3}[.,]\d\d$")] private static partial Regex FeeAmountToken();
+    // "4 @ $2.94 <any amount of show-through> 11.76", trusted only when the numbers multiply out.
+    [GeneratedRegex(@"^(\d{1,3})\s+\S{1,2}\s+[$sS]?(\d+[.,]\d\d)(?:\s+[e8a][a8])?\s+.*?(\d+[.,]\d\d)$")] private static partial Regex NoisyQuantityPrice();
     [GeneratedRegex(@"^\$?(\d+[.,]\d\d)\s+e.*?\d/\$?\d+[.,]\d\d")] private static partial Regex MultiBuyInfo();
     [GeneratedRegex(@"^(\d{1,3})\s+\S{1,2}\s+(\d)/[$3Ss]?(\d+[.,]\d\d)\s+(\d{1,4}[.,]\d\d)$")] private static partial Regex MultiBuyTotal();
     [GeneratedRegex(@"^(\d+[.,]\d{3})\s*k\S*\s+(?:\S+\s+){0,3}?\$?(\d+[.,]\d\d)\s*/\s*k\S*\s+(\d{1,4}[.,]\d\d)$")] private static partial Regex Weighed();
@@ -26,8 +28,6 @@ public static partial class SuperstoreParser
     // "$3.79 lmt 3, $4.49 ea": a sale price with a limit, then the regular price. "l" is often read as 1 or i, and "m" as n.
     [GeneratedRegex(@"^\$?\d+[.,]\d\d\s+[l1iI][mn]t\s*\d+\s*[.,]?\s*\$?(\d+[.,]\d\d)\s*[e8][a8]")] private static partial Regex LimitInfo();
     [GeneratedRegex(@"^[G6B8SU]?P?M[RHA.]{0,2}[JS]\s+(-?\d{1,4}[.,]\d\d)$")] private static partial Regex WrappedFlags();
-    // A fee with its amount on the same row, once with the "4@$0.02" rate between them and once with the rate on the next row.
-    [GeneratedRegex(@"^(?:re?c\S*\s+f\S+|dep[o0]s\S*(?:\s+\d)?)\s+(?:(\S*\d[.,]\d\d)\s+)?(\d{1,3}[.,]\d\d)$", RegexOptions.IgnoreCase)] private static partial Regex InlineFee();
     [GeneratedRegex(@"^\S{1,3}\$?\d[.,]\d\d$")] private static partial Regex FeeRate();
     [GeneratedRegex(@"PERSTORE|EAL\s*CANAD|^RCSS\b", RegexOptions.IgnoreCase)] private static partial Regex Header();
     [GeneratedRegex(@"(?:s.t\s*pr|pr[il1]c).*?(-\d+[.,]\d\d)\s*$", RegexOptions.IgnoreCase)] private static partial Regex DiscountLine();
@@ -41,7 +41,8 @@ public static partial class SuperstoreParser
 
     [GeneratedRegex(@"^(\S{0,2}\d{1,2}[)\]])\s+")] private static partial Regex SpacedPrefix();
 
-    private enum Pending { None, Fee, FeeRate }
+    // After a fee label: its amount is still to come (on one of the next two rows), or only its "4@$0.02" rate is.
+    private enum Pending { None, FeeAmount, FeeRate }
 
     public static bool Matches(IEnumerable<OcrLine> lines) =>
         lines.Take(12).Any(l => Regex.IsMatch(l.Text, @"SUP.?R.?ST|REAL\s+CANA", RegexOptions.IgnoreCase) || Header().IsMatch(l.Text));
@@ -50,6 +51,9 @@ public static partial class SuperstoreParser
     public static bool IsHeader(string text) => Header().IsMatch(text.Trim());
 
     public static bool IsSubtotal(string text) => SubtotalLine().IsMatch(Clean(text));
+
+    /// <summary>A department heading such as "22-DAIRY", which sits between items and belongs to none of them.</summary>
+    public static bool IsDepartment(string text) => Dept().IsMatch(Clean(text));
 
     /// <summary>A department heading or item line: what follows a header on a real receipt, and not on a footer that names the store.</summary>
     public static bool StartsItems(string text)
@@ -82,6 +86,7 @@ public static partial class SuperstoreParser
         var openGroup = new List<ReceiptItem>();
         decimal? groupRegular = null;
         var pending = Pending.None;
+        int feeRows = 0;
         MultiBuyGroup? lastGroup = null;
         ReceiptItem? quantityRead = null; // The item whose quantity line has been read, so a second one is a second price.
 
@@ -92,24 +97,31 @@ public static partial class SuperstoreParser
             if (t.Length == 0) continue;
             if (SubtotalLine().IsMatch(t)) break;
 
-            if (pending == Pending.FeeRate)
+            // Rows under a fee label belong to that fee until the next item, department or fee starts.
+            if (pending != Pending.None && current is not null && !StartsBlock(t))
             {
-                pending = Pending.None;
-                if (FeeRate().IsMatch(t)) continue;
+                var (rate, amount) = FeeParts(t);
+                if (pending == Pending.FeeAmount && amount is { } fee)
+                {
+                    current.Fees += fee;
+                    pending = rate ? Pending.None : Pending.FeeRate;
+                    continue;
+                }
+                if (rate && amount is null && feeRows++ < 2)
+                {
+                    if (pending == Pending.FeeRate) pending = Pending.None;
+                    continue;
+                }
             }
-            if (pending == Pending.Fee)
-            {
-                pending = Pending.None;
-                var fee = FeeAmount().Match(t);
-                if (fee.Success && current is not null) { current.Fees += Dec(fee.Groups[1].Value); continue; }
-            }
+            pending = Pending.None;
 
             if (Dept().IsMatch(t)) { dept = Regex.Replace(t, @"^\d+\s*-?\s*", ""); current = null; continue; }
-            if (current is not null && (Recycling().IsMatch(t) || Deposit().IsMatch(t))) { pending = Pending.Fee; continue; }
-            if (current is not null && InlineFee().Match(t) is { Success: true } inline)
+            if (current is not null && FeeLabel().Match(t) is { Success: true } label)
             {
-                current.Fees += Dec(inline.Groups[2].Value);
-                if (!inline.Groups[1].Success) pending = Pending.FeeRate;
+                var (rate, amount) = FeeParts(label.Groups[1].Value.Trim());
+                if (amount is { } fee) current.Fees += fee;
+                pending = amount is null ? Pending.FeeAmount : rate ? Pending.None : Pending.FeeRate;
+                feeRows = 0;
                 continue;
             }
 
@@ -152,10 +164,13 @@ public static partial class SuperstoreParser
                 current.Quantity = Dec(m.Groups[1].Value);
                 current.UnitPrice = Dec(m.Groups[2].Value);
                 current.LineTotal = Dec(m.Groups[3].Value);
+                if (StrayDollarPrice(current.UnitPrice.Value, current.Quantity, current.LineTotal.Value, tolerance: 0.01m) is { } perKg)
+                    current.UnitPrice = perKg;
                 openGroup.Remove(current);
                 continue;
             }
 
+            if (!QuantityPrice().IsMatch(t) && CheckedQuantityLine(t) is { } tidy) t = tidy;
             m = QuantityPrice().Match(t);
             // "3 @ $3.29 ea" under several unpriced lines is one sale price shared across them.
             if (m.Success && m.Groups[3].Success && m.Groups[4].Success && openGroup.Count > 1)
@@ -201,7 +216,19 @@ public static partial class SuperstoreParser
                 quantityRead = current;
                 // The quantity prints twice. If they disagree, keep the one that agrees with price x total.
                 bool prefixFits = current.HasPrefixQuantity && current.Quantity * current.UnitPrice == current.LineTotal;
+                var prefixQty = current.HasPrefixQuantity ? current.Quantity : printedQty;
                 if (!prefixFits) current.Quantity = printedQty;
+                if (current.LineTotal is { } lineTotal && current.Quantity * current.UnitPrice != lineTotal)
+                {
+                    // Either printed quantity may be the one that makes the corrected price fit.
+                    foreach (var qty in new[] { current.Quantity, prefixQty }.Distinct())
+                        if (StrayDollarPrice(current.UnitPrice.Value, qty, lineTotal, tolerance: 0.01m) is { } each)
+                        {
+                            current.Quantity = qty;
+                            current.UnitPrice = each;
+                            break;
+                        }
+                }
                 openGroup.Remove(current);
                 continue;
             }
@@ -234,6 +261,60 @@ public static partial class SuperstoreParser
             current = null;
             lastGroup = g;
         }
+    }
+
+    /// <summary>
+    /// A quantity row with too much show-through for <see cref="QuantityPrice"/>, rewritten as a plain one. The last amount
+    /// can have junk stuck to its front ("bo11.00"), so each length is tried, and it's kept only where quantity x price
+    /// equals it exactly.
+    /// </summary>
+    private static string? CheckedQuantityLine(string t)
+    {
+        var m = NoisyQuantityPrice().Match(t);
+        if (!m.Success) return null;
+        var qty = Dec(m.Groups[1].Value);
+        var price = Dec(m.Groups[2].Value);
+        var digits = m.Groups[3].Value;
+        for (int start = 0; start < digits.Length - 3; start++)
+        {
+            var total = Dec(digits[start..]);
+            if (qty > 0m && qty * price == total)
+                return $"{m.Groups[1].Value} @ ${m.Groups[2].Value} {digits[start..]}";
+        }
+        return null;
+    }
+
+    /// <summary>A row that starts something new, so it can't be the rest of a fee above it.</summary>
+    private static bool StartsBlock(string t) =>
+        Dept().IsMatch(t) || SubtotalLine().IsMatch(t) || FeeLabel().IsMatch(t) || LooksLikeCode(t.Split(' ')[0]);
+
+    /// <summary>
+    /// Reads what follows a fee label: whether a "4@$0.02" rate is there, and the fee amount, which is the last thing on
+    /// the row. A rate on its own, like "4@$0.10", is not an amount. Words in between are text showing through the paper.
+    /// </summary>
+    private static (bool Rate, decimal? Amount) FeeParts(string rest)
+    {
+        var tokens = rest.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (tokens.Length == 0) return (false, null);
+        bool rate = FeeRate().IsMatch(tokens[0]) || Regex.IsMatch(rest, @"^\d{1,2}\s*[@0aG]");
+        if (tokens.Length == 1 && FeeRate().IsMatch(tokens[0])) return (true, null);
+        return FeeAmountToken().IsMatch(tokens[^1]) ? (rate, Dec(tokens[^1])) : (rate, null);
+    }
+
+    /// <summary>
+    /// A "$" can read as a digit, so "3 @ $5.00 15.00" arrives as "3 @ 85.00 15.00". The price without its first digit
+    /// is used only when it then agrees with the quantity and line total. Any other disagreement is left as printed for
+    /// the totals checks to flag, because either number could be the misread one: "3 @ $3.50 10.50" with a faded 1
+    /// reads as "3 @ $3.50 0.50", and working the price out from that total would quietly give 0.17.
+    /// </summary>
+    /// <param name="tolerance">A cent allows for deals like 3 for $10.00, printed as "3 @ $3.33".</param>
+    private static decimal? StrayDollarPrice(decimal price, decimal qty, decimal total, decimal tolerance)
+    {
+        if (qty <= 0m || total <= 0m) return null;
+        var text = price.ToString("0.00", CultureInfo.InvariantCulture);
+        if (text.Length < 5) return null;
+        var rest = Dec(text[1..]);
+        return Math.Abs(Math.Round(rest * qty, 2, MidpointRounding.AwayFromZero) - total) <= tolerance ? rest : null;
     }
 
     private static ReceiptItem? TryParseItem(string t, int lineNo, double conf, string dept)

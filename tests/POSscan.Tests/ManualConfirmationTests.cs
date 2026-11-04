@@ -33,9 +33,9 @@ public class ManualConfirmationTests
     public void Lines_show_their_numbers_the_way_the_receipt_does()
     {
         var (r, d) = Build();
-        Assert.Equal("06870011200  4 @ 5.05", ManualConfirmation.Format(r, StepFor(r, d, "06870011200")));
-        Assert.Equal("05680051124  2", ManualConfirmation.Format(r, StepFor(r, d, "05680051124")));
-        Assert.Equal("4556  2.695 @ 2.84", ManualConfirmation.Format(r, StepFor(r, d, "4556")));
+        Assert.Equal("06870011200  HOMO MILK 3.25%  5.05 x 4", ManualConfirmation.Format(r, StepFor(r, d, "06870011200")));
+        Assert.Equal("05680051124  OIKO YOG CA MO  x 2", ManualConfirmation.Format(r, StepFor(r, d, "05680051124")));
+        Assert.Equal("4556  CABBAGE GREEN  2.84 x 2.695", ManualConfirmation.Format(r, StepFor(r, d, "4556")));
     }
 
     [Fact]
@@ -55,7 +55,7 @@ public class ManualConfirmationTests
     {
         var (r, d) = Build();
         var s = StepFor(r, d, "06870011200");
-        var input = ManualConfirmation.Read(r, s, "06870011200 4 @ 5.15");
+        var input = ManualConfirmation.Read(r, s, "06870011200 5.15 x 4");
         Assert.Null(input.Error);
         var (after, _) = Build([.. input.Edits]);
         var milk = after.Items.Single(i => i.RawCode == "06870011200");
@@ -67,7 +67,7 @@ public class ManualConfirmationTests
     public void Changing_a_single_item_price_changes_price_and_total_together()
     {
         var (r, d) = Build();
-        var input = ManualConfirmation.Read(r, StepFor(r, d, "06038314170"), "06038314170 1 @ 3.99");
+        var input = ManualConfirmation.Read(r, StepFor(r, d, "06038314170"), "06038314170 3.99 x 1");
         var (after, _) = Build([.. input.Edits]);
         var mush = after.Items.Single(i => i.RawCode == "06038314170");
         Assert.Equal(3.99m, mush.UnitPrice);
@@ -78,7 +78,7 @@ public class ManualConfirmationTests
     public void A_corrected_code_and_quantity_are_both_applied()
     {
         var (r, d) = Build();
-        var input = ManualConfirmation.Read(r, StepFor(r, d, "06870011200"), "06870011500  3 @ $5.05");
+        var input = ManualConfirmation.Read(r, StepFor(r, d, "06870011200"), "06870011500  $5.05 x 3");
         var (after, _) = Build([.. input.Edits]);
         var milk = after.Items.Single(i => i.RawCode == "06870011500");
         Assert.Equal(3m, milk.Quantity);
@@ -89,12 +89,15 @@ public class ManualConfirmationTests
     [InlineData("")]
     [InlineData("06870011200")]
     [InlineData("06870011200 4")]
-    [InlineData("06870011200 four @ 5.05")]
-    [InlineData("06870011200 0 @ 5.05")]
-    [InlineData("06870011200 4 @ abc")]
-    [InlineData("06870011200 4 @ -5.05")]
-    [InlineData("06870011200 4 @ 5.05 20.20")]
-    [InlineData("0687oo11200x 4 @ 5.05")]
+    [InlineData("06870011200 5.05 x four")]
+    [InlineData("06870011200 5.05 x 0")]
+    [InlineData("06870011200 abc x 4")]
+    [InlineData("06870011200 -5.05 x 4")]
+    [InlineData("06870011200 5.05 x 4 20.20")]
+    [InlineData("06870011200 5.05 20.20 x 4")]
+    [InlineData("06870011200 4 @ 5.05")]
+    [InlineData("06870011200 HOMO MILK 5 x 4")]
+    [InlineData("0687oo11200x 5.05 x 4")]
     public void Bad_input_is_explained_and_changes_nothing(string text)
     {
         var (r, d) = Build();
@@ -120,9 +123,9 @@ public class ManualConfirmationTests
         var lines = L("27-PRODUCE", "(3)06038303814 PCO MUSH MRJ", "3 @ $3.50 10.5:", "SUBTOTAL 10.50", "TOTAL 10.50");
         var (r, d) = ReceiptDraft.Build(lines, []);
         var s = ManualConfirmation.Steps(r, d)[0];
-        Assert.Equal("06038303814  3 @ ", ManualConfirmation.Format(r, s));
-        Assert.NotNull(ManualConfirmation.Read(r, s, "06038303814 3 @").Error);
-        var (after, _) = ReceiptDraft.Build(lines, ManualConfirmation.Read(r, s, "06038303814 3 @ 3.50").Edits);
+        Assert.Equal("06038303814  PCO MUSH   x 3", ManualConfirmation.Format(r, s));
+        Assert.NotNull(ManualConfirmation.Read(r, s, "06038303814 PCO MUSH x 3").Error);
+        var (after, _) = ReceiptDraft.Build(lines, ManualConfirmation.Read(r, s, "06038303814 PCO MUSH 3.50 x 3").Edits);
         Assert.Equal(10.50m, after.Items.Single().LineTotal);
     }
 
@@ -159,6 +162,31 @@ public class ManualConfirmationTests
         var milk = r.Items.Single(i => i.RawCode == "06870011200").SourceLine;
         var (after, d) = Build(new ReceiptEdit(EditKind.Skip, milk));
         Assert.DoesNotContain(ManualConfirmation.Steps(after, d), s => s.Line == milk);
+    }
+
+    [Fact]
+    public void A_changed_name_is_saved_and_a_left_out_name_is_kept()
+    {
+        var (r, d) = Build();
+        var s = StepFor(r, d, "06870011200");
+        var renamed = ManualConfirmation.Read(r, s, "06870011200  WHOLE MILK 4L  5.05 x 4");
+        Assert.Null(renamed.Error);
+        var (after, _) = Build([.. renamed.Edits]);
+        Assert.Equal("WHOLE MILK 4L", after.Items.Single(i => i.RawCode == "06870011200").Name);
+
+        var kept = ManualConfirmation.Read(r, s, "06870011200 5.05 x 4");
+        Assert.Null(kept.Error);
+        Assert.Empty(kept.Edits);
+    }
+
+    [Fact]
+    public void A_saved_name_is_shown_and_counts_as_no_change()
+    {
+        var (r, d) = Build();
+        var s = StepFor(r, d, "06870011200");
+        var text = ManualConfirmation.Format(r, s, "Homo Milk 4L");
+        Assert.Equal("06870011200  Homo Milk 4L  5.05 x 4", text);
+        Assert.Empty(ManualConfirmation.Read(r, s, text, "Homo Milk 4L").Edits);
     }
 
     [Fact]

@@ -2,6 +2,92 @@ using POSscan.Core;
 
 namespace POSscan.Tests;
 
+public class DollarMisreadTests
+{
+    private static ReceiptItem Parse(params string[] itemLines)
+    {
+        var lines = new[] { "21-GROCERY" }.Concat(itemLines).Concat(["SUBTOTAL 15.00", "TOTAL 15.00"]).Select(l => new OcrLine(l)).ToList();
+        return SuperstoreParser.Parse(lines).Items.Single();
+    }
+
+    [Theory]
+    [InlineData("3 @ 85.00 15.00", 3, 5.00, 15.00)]     // The example from the store.
+    [InlineData("3 @ 85.00 ea 15.00", 3, 5.00, 15.00)]
+    [InlineData("1 @ 85.00 5.00", 1, 5.00, 5.00)]
+    [InlineData("3 @ 83.33 10.00", 3, 3.33, 10.00)]     // Divides with a rounded cent.
+    [InlineData("2 @ 80.50 1.00", 2, 0.50, 1.00)]
+    [InlineData("20 @ 85.00 100.00", 20, 5.00, 100.00)] // Price below the total, but dropping the 8 fits exactly.
+    public void A_price_with_the_dollar_sign_read_as_8_comes_from_the_line_total(string line, int qty, double price, double total)
+    {
+        var item = Parse("(" + qty + ")06038314170 PCO MUSH MRJ", line);
+        Assert.Equal((decimal)qty, item.Quantity);
+        Assert.Equal((decimal)price, item.UnitPrice);
+        Assert.Equal((decimal)total, item.LineTotal);
+    }
+
+    [Fact]
+    public void The_correct_quantity_is_kept_when_the_printed_one_is_also_misread()
+    {
+        var item = Parse("(3)06038314170 PCO MUSH MRJ", "8 @ 85.00 15.00");
+        Assert.Equal(3m, item.Quantity);
+        Assert.Equal(5.00m, item.UnitPrice);
+    }
+
+    [Theory]
+    [InlineData("3 @ $5.00 15.00", 5.00)]
+    [InlineData("10 @ 8.00 80.00", 8.00)]   // A real price starting with 8.
+    [InlineData("2 @ 85.00 170.00", 85.00)] // A real price of 85, since the total agrees.
+    [InlineData("2 @ $4.00 6.00", 4.00)]    // Not this rule: lower than the total, so it stays flagged for a person.
+    public void Other_prices_are_left_as_printed(string line, double price)
+    {
+        Assert.Equal((decimal)price, Parse("06038314170 PCO MUSH MRJ", line).UnitPrice);
+    }
+
+    // From the third receipt of the real batch: 3 @ $3.50 10.50, with the 1 of the total faded off the paper.
+    [Theory]
+    [InlineData("3 @ $3.50 0.50")]
+    [InlineData("3 @ $3.50 1.50")]
+    [InlineData("1 @ $9.99 0.99")]
+    public void A_price_above_a_misread_total_is_kept_and_flagged_not_worked_out_from_the_total(string line)
+    {
+        var lines = new[] { "27-PRODUCE", "(3)06038303810 PCO CREMINI MRJ", line, "SUBTOTAL 10.50", "TOTAL 10.50" }
+            .Select(l => new OcrLine(l)).ToList();
+        var r = SuperstoreParser.Parse(lines);
+        var item = r.Items.Single();
+        var printed = decimal.Parse(line.Split(' ')[2].TrimStart('$'), System.Globalization.CultureInfo.InvariantCulture);
+        Assert.Equal(printed, item.UnitPrice);
+        Assert.Equal(printed, r.ActualUnitCost(item));
+        Assert.Contains(Reconciler.Check(r).Issues, i => i.Code == "LINE_MATH" && i.SourceLine == item.SourceLine);
+    }
+
+    [Fact]
+    public void A_misread_line_total_is_offered_as_a_fix_on_the_review_screen()
+    {
+        var lines = new[] { "27-PRODUCE", "(3)06038303810 PCO CREMINI MRJ", "3 @ $3.50 0.50", "SUBTOTAL 10.50", "TOTAL 10.50" }
+            .Select(l => new OcrLine(l)).ToList();
+        var r = SuperstoreParser.Parse(lines);
+        var review = Review.Build(r, Reconciler.Check(r), new DraftDecisions(), new ItemMatcher([]), _ => new PriceLookup(null, null, false), new ReviewSettings());
+        var line = review.Lines.Single();
+        Assert.Equal(LineState.Attention, line.State);
+        Assert.Equal(3.50m, line.Cost);
+        Assert.Contains(line.Fixes, f => f.Label == "Use 10.50");
+    }
+
+    [Fact]
+    public void A_weighed_price_with_the_dollar_sign_read_as_8_is_corrected()
+    {
+        var item = Parse("4556 CABBAGE GREEN MRJ", "2.695 kg @ 82.84/kg 7.65");
+        Assert.Equal(2.84m, item.UnitPrice);
+        Assert.Equal(2.695m, item.Quantity);
+    }
+
+    [Fact]
+    public void Under_a_kilo_the_price_is_properly_more_than_the_total()
+    {
+        Assert.Equal(2.84m, Parse("4556 CABBAGE GREEN MRJ", "0.500 kg @ $2.84/kg 1.42").UnitPrice);
+    }
+}
+
 public class ReceiptTests
 {
     private static ParsedReceipt Fixture() => SuperstoreParser.Parse(

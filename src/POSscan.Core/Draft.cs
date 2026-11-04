@@ -9,7 +9,7 @@ public enum EditKind
     IgnoreLine, AddItem,
     Skip, Unskip, ConfirmLine, ForceExport,
     // Saved drafts store these by number, so new kinds only ever go on the end.
-    SetFees, SetDiscount,
+    SetFees, SetDiscount, SetName,
 }
 
 /// <summary>
@@ -22,6 +22,8 @@ public sealed class DraftDecisions
 {
     public HashSet<int> Skipped { get; } = [];
     public HashSet<int> Confirmed { get; } = [];
+    /// <summary>Lines a person has confirmed or changed. Unlike Confirmed, a later change doesn't clear it.</summary>
+    public HashSet<int> Checked { get; } = [];
     public string? ForceReason { get; set; }
 }
 
@@ -39,6 +41,9 @@ public static class ReceiptDraft
     private static void Apply(ParsedReceipt r, DraftDecisions d, ReceiptEdit e)
     {
         var item = r.Items.FirstOrDefault(i => i.SourceLine == e.Line);
+        if (item is not null && e.Kind is EditKind.SetCode or EditKind.SetQuantity or EditKind.SetUnitPrice or EditKind.SetLineTotal
+            or EditKind.SetFees or EditKind.SetDiscount or EditKind.SetName or EditKind.ConfirmLine)
+            d.Checked.Add(e.Line);
         switch (e.Kind)
         {
             case EditKind.SetCode when item is not null:
@@ -63,12 +68,17 @@ public static class ReceiptDraft
                 break;
             case EditKind.SetFees when item is not null: item.Fees = Dec(e.Value); break;
             case EditKind.SetDiscount when item is not null: item.Discount = Dec(e.Value); break;
+            case EditKind.SetName when item is not null: item.Name = e.Value.Trim(); break;
             case EditKind.SetGroupTotal:
                 var group = r.Groups.FirstOrDefault(g => g.SourceLine == e.Line);
                 if (group is not null)
                 {
                     group.Total = Dec(e.Value);
-                    foreach (var member in r.Items.Where(i => i.GroupId == group.Id)) d.Confirmed.Remove(member.SourceLine);
+                    foreach (var member in r.Items.Where(i => i.GroupId == group.Id))
+                    {
+                        d.Confirmed.Remove(member.SourceLine);
+                        d.Checked.Add(member.SourceLine);
+                    }
                 }
                 break;
             case EditKind.SetSubtotal: r.Subtotal = Dec(e.Value); break;
@@ -89,7 +99,7 @@ public static class ReceiptDraft
                 break;
             case EditKind.Skip: d.Skipped.Add(e.Line); break;
             case EditKind.Unskip: d.Skipped.Remove(e.Line); break;
-            case EditKind.ConfirmLine: d.Confirmed.Add(e.Line); break;
+            case EditKind.ConfirmLine: d.Confirmed.Add(e.Line); d.Checked.Add(e.Line); break;
             case EditKind.ForceExport: d.ForceReason = string.IsNullOrWhiteSpace(e.Value) ? null : e.Value.Trim(); break;
         }
     }

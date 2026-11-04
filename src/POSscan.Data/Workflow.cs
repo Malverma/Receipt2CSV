@@ -21,7 +21,11 @@ public sealed record ImportOutcome(long? ReceiptId, long? DuplicateOf)
     public IReadOnlyList<long> Added { get; init; } = [];
 }
 
-public sealed record ExportOutcome(string Path, int Rows, IReadOnlyList<string> ByHand, int Unchanged, int Skipped);
+public sealed record ExportOutcome(string Path, int Rows, IReadOnlyList<string> ByHand, int Unchanged, int Skipped)
+{
+    /// <summary>Set when the file was created before everything was checked.</summary>
+    public string? Warning { get; init; }
+}
 
 /// <summary>Everything the screens do, with no UI code, so the whole flow can be tested.</summary>
 public sealed class Workflow(PosStore store, IReceiptReader reader)
@@ -133,13 +137,16 @@ public sealed class ReceiptSession
     /// <returns>What's wrong with the text, written for store staff, or null if it was saved.</returns>
     public string? ConfirmStep(ConfirmStep step, string text)
     {
-        var input = ManualConfirmation.Read(Receipt, step, text);
+        var input = ManualConfirmation.Read(Receipt, step, text, ShownName(step));
         if (input.Error is not null) return input.Error;
         foreach (var edit in input.Edits) Apply(edit);
         if (step.Kind != ConfirmKind.Item) return null;
 
         Apply(new ReceiptEdit(EditKind.ConfirmLine, step.Line));
         var line = Review.Lines.FirstOrDefault(l => l.Item.SourceLine == step.Line);
+        if (line?.Mapping is { } saved && input.Edits.FirstOrDefault(e => e.Kind == EditKind.SetName) is { } rename)
+            SaveMapping(saved with { EstreamName = rename.Value });
+        line = Review.Lines.FirstOrDefault(l => l.Item.SourceLine == step.Line);
         if (line is { Mapping: null, State: LineState.Attention })
         {
             var draft = Core.Review.NewMappingDraft(line.Item);
@@ -147,6 +154,12 @@ public sealed class ReceiptSession
         }
         return null;
     }
+
+    /// <summary>The text the manual walk shows for a line.</summary>
+    public string FormatStep(ConfirmStep step) => ManualConfirmation.Format(Receipt, step, ShownName(step));
+
+    private string? ShownName(ConfirmStep step) => step.Kind != ConfirmKind.Item ? null
+        : Review.Lines.FirstOrDefault(l => l.Item.SourceLine == step.Line)?.DisplayName;
 
     /// <summary>The known items an item's code is one digit away from, which can mean a misread.</summary>
     public IReadOnlyList<string> NearMisses(int sourceLine) =>
@@ -169,10 +182,11 @@ public sealed class ReceiptSession
             new ReviewSettings { PriceChangePercent = settings.PriceChangePercent, ExportWeighed = settings.ExportWeighed });
     }
 
-    public ExportOutcome Export(DateTime? when = null)
+    /// <param name="includeUnchecked">Create the file now, with anything still to check going in as read where it can.</param>
+    public ExportOutcome Export(DateTime? when = null, bool includeUnchecked = false)
     {
         var settings = _store.GetSettings();
-        var rows = Core.Review.ToBatch(Review, Record.Supplier);
+        var rows = Core.Review.ToBatch(Review, Record.Supplier, includeUnchecked);
         var moment = when ?? DateTime.Now;
 
         var folder = settings.OutputFolder.Length > 0 ? settings.OutputFolder
@@ -189,14 +203,30 @@ public sealed class ReceiptSession
 
         var byHand = Review.Lines.Where(l => l.State == LineState.ByHand)
             .Select(l => $"{l.DisplayName}: {l.Cost:0.00} per kg").ToList();
+        var uncheckedLines = includeUnchecked ? Review.Unchecked.ToList() : [];
+        if (includeUnchecked)
+        {
+            byHand.AddRange(Review.LeftOut.Select(l => $"{(l.DisplayName.Length > 0 ? l.DisplayName : l.Item.RawCode)}: left out because {l.LeftOutBecause}"));
+            byHand.AddRange(Review.Unreadable.Select(u => $"Line that couldn't be read: {u.Text}"));
+        }
         int unchanged = Review.Lines.Count(l => l.State == LineState.NoChange);
         int skipped = Review.Lines.Count(l => l.State is LineState.Skipped or LineState.NotForResale);
         var costs = Review.Lines.Where(l => l.State is LineState.Ready or LineState.NoChange && l.Cost is not null)
+            .Concat(uncheckedLines)
             .Select(l => (l.Item.RawCode, l.Cost!.Value)).ToList();
         var sha = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path)));
         _store.RecordExport(Record.Id, Record.Supplier, Receipt.Date ?? Record.ReceiptDate, path, sha, rows.Count, profile.Name,
             costs, JsonSerializer.Serialize(byHand), unchanged, skipped);
-        return new(path, rows.Count, byHand, unchanged, skipped);
+        if (!includeUnchecked || Review.CanExport) return new(path, rows.Count, byHand, unchanged, skipped);
+
+        var warning = new List<string>();
+        if (uncheckedLines.Count > 0)
+            warning.Add(uncheckedLines.Count == 1 ? "1 item in this file wasn't checked against the receipt." : $"{uncheckedLines.Count} items in this file weren't checked against the receipt.");
+        if (!Review.TotalsMatch && !Review.Forced) warning.Add("This receipt's totals weren't matched.");
+        warning.Add("Check these costs in Estream after importing.");
+        var text = string.Join(" ", warning);
+        _store.Audit(Record.Id, "exported-unchecked", text);
+        return new(path, rows.Count, byHand, unchanged, skipped) { Warning = text };
     }
 
     private static string UniquePath(string folder, string stem)

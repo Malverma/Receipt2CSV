@@ -15,6 +15,8 @@ public sealed class DoneVm : Vm
     public string Summary { get; }
     public IReadOnlyList<string> ByHand { get; }
     public bool HasByHand => ByHand.Count > 0;
+    public string? Warning { get; }
+    public bool HasWarning => !string.IsNullOrEmpty(Warning);
     public bool Imported { get => _imported; private set { if (Set(ref _imported, value)) Raise(nameof(NotImported)); } }
     public bool NotImported => !_imported;
     public bool FileExists => File.Exists(FilePath);
@@ -24,7 +26,10 @@ public sealed class DoneVm : Vm
     public Command Another { get; }
 
     public DoneVm(MainVm main, ReceiptRecord record, ExportOutcome outcome)
-        : this(main, record.Id, record.Status == ReceiptStatus.Imported, outcome.Path, outcome.Rows, outcome.ByHand, outcome.Unchanged, outcome.Skipped) { }
+        : this(main, record.Id, record.Status == ReceiptStatus.Imported, outcome.Path, outcome.Rows, outcome.ByHand, outcome.Unchanged, outcome.Skipped)
+    {
+        Warning = outcome.Warning;
+    }
 
     public static DoneVm FromBatch(MainVm main, ReceiptRecord record, BatchRecord batch) =>
         new(main, record.Id, record.Status == ReceiptStatus.Imported, batch.Path, batch.RowCount,

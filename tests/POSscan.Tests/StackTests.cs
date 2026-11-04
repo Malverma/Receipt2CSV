@@ -124,6 +124,62 @@ public class StackTests
         Assert.Equal(5.05m, r.ActualUnitCost(Item(r, "06870011200")));
     }
 
+    // From the third receipt of the real batch, where the back of the paper shows through onto the fee rows.
+    [Fact]
+    public void Fee_rows_with_text_showing_through_still_belong_to_the_item_above()
+    {
+        var lines = new[]
+        {
+            "22-DAIRY",
+            "(4)06870012200 HMGZD MILK 3.25% RQ", "4 @ $3.04 12.16",
+            "RECYCLING FEE iw georibruq to expb &f nirltiw bale.1", "4@s0 92 sato vino egnodox3 gnigospoq bn 0.08",
+            "DEPOsIT 1eb rot erote os2 yigqo anolquxe emo?", "0.40",
+            "(4)06870012500 PRT SKIM MILK2% RQ", "4 @ $2.94 11.76",
+            "RECYCLING FEE", "4@$0.02 uoqestogaos snté tueg scibnpoom 0.08",
+            "DEPOSIT1.1 2slenob tnsmezuodmez nupo sgnorpè", "40$0.10 0.40",
+            "RECYCL ING FEE", "3850.02 0.06",
+            "SUBTOTAL 24.94", "TOTAL 24.94",
+        }.Select(l => new OcrLine(l)).ToList();
+        var r = SuperstoreParser.Parse(lines);
+        Assert.Empty(r.Unparsed);
+        Assert.Equal(0.48m, Item(r, "06870012200").Fees);
+        Assert.Equal(0.54m, Item(r, "06870012500").Fees);
+        Assert.Equal(24.94m, Reconciler.Check(r).CalculatedSubtotal);
+    }
+
+    [Fact]
+    public void A_fee_label_with_no_amount_does_not_swallow_the_next_item()
+    {
+        var lines = new[]
+        {
+            "22-DAIRY", "(4)06870011200 HOMO MILK 3.25% RQ", "4 @ $5.05 20.20", "DEPOSIT 1",
+            "06870026700 DAIRYLND SOUR CR MRJ 4.49", "SUBTOTAL 24.69", "TOTAL 24.69",
+        }.Select(l => new OcrLine(l)).ToList();
+        var r = SuperstoreParser.Parse(lines);
+        Assert.Equal(0m, Item(r, "06870011200").Fees);
+        Assert.Equal(4.49m, Item(r, "06870026700").LineTotal);
+    }
+
+    [Theory]
+    [InlineData("4 @ $2.94 pezi03 9b u2e7 al 2ep 2108 11.76", 11.76)]
+    [InlineData("4 @ $2.94 3pbpq bo11.76", 11.76)]
+    public void A_quantity_line_full_of_show_through_is_read_when_its_numbers_agree(string qtyLine, double total)
+    {
+        var lines = new[] { "22-DAIRY", "(4)06870012500 PRT SKIM MILK2% RQ", qtyLine, "SUBTOTAL 11.76", "TOTAL 11.76" }
+            .Select(l => new OcrLine(l)).ToList();
+        var r = SuperstoreParser.Parse(lines);
+        Assert.Empty(r.Unparsed);
+        Assert.Equal((decimal)total, Item(r, "06870012500").LineTotal);
+    }
+
+    [Fact]
+    public void A_quantity_line_full_of_show_through_is_flagged_when_its_numbers_disagree()
+    {
+        var lines = new[] { "22-DAIRY", "(4)06870012500 PRT SKIM MILK2% RQ", "4 @ $2.94 pezi03 9b u2e7 al 2ep 2108 11.70", "SUBTOTAL 11.76", "TOTAL 11.76" }
+            .Select(l => new OcrLine(l)).ToList();
+        Assert.Single(SuperstoreParser.Parse(lines).Unparsed);
+    }
+
     [Fact]
     public void Text_showing_through_from_the_back_does_not_hide_a_quantity_line()
     {

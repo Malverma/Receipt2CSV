@@ -407,11 +407,87 @@ public class WorkflowTests : IDisposable
         var flow = new Workflow(_store, new StackReader(lines));
         var s = flow.Open(flow.Import(Pdf()).ReceiptId!.Value);
         var steps = ManualConfirmation.Steps(s.Receipt, s.Decisions);
-        Assert.Null(s.ConfirmStep(steps[0], "02970080141 1 @ 1.99"));
+        Assert.Null(s.ConfirmStep(steps[0], "02970080141 1.99 x 1"));
         Assert.NotEmpty(s.NearMisses(steps[1].Line));
-        Assert.Null(s.ConfirmStep(steps[1], "02970080147 1 @ 1.99"));
+        Assert.Null(s.ConfirmStep(steps[1], "02970080147 1.99 x 1"));
         Assert.Empty(s.NearMisses(steps[1].Line));
         Assert.Equal(LineState.Ready, s.Review.Lines.Single(l => l.Item.RawCode == "02970080147").State);
+    }
+
+    private ReceiptSession OpenLines(params string[] text)
+    {
+        var flow = new Workflow(_store, new StackReader(text.Select(l => new OcrLine(l)).ToList()));
+        return flow.Open(flow.Import(Pdf(content: string.Join('\n', text))).ReceiptId!.Value);
+    }
+
+    [Fact]
+    public void Looking_at_a_line_does_not_mark_it_checked_but_confirming_or_changing_it_does()
+    {
+        var s = OpenLines("21-GROCERY", "02970080141 IDAH BRY MRJ 1.99", "06038314170 PCO MUSH MRJ 3.50", "SUBTOTAL 5.49", "TOTAL 5.49");
+        ReviewLine Line(string code) => s.Review.Lines.Single(l => l.Item.RawCode == code);
+        Assert.All(s.Review.Lines, l => Assert.False(l.IsChecked));
+
+        s.Apply(new ReceiptEdit(EditKind.ConfirmLine, Line("02970080141").Item.SourceLine));
+        Assert.True(Line("02970080141").IsChecked);
+        Assert.False(Line("06038314170").IsChecked);
+
+        s.Apply(new ReceiptEdit(EditKind.SetLineTotal, Line("06038314170").Item.SourceLine, "3.50"));
+        Assert.True(Line("06038314170").IsChecked);
+    }
+
+    [Fact]
+    public void Renaming_a_saved_item_in_the_walk_updates_its_saved_name()
+    {
+        var s = OpenLines("21-GROCERY", "02970080141 IDAH BRY MRJ 1.99", "SUBTOTAL 1.99", "TOTAL 1.99");
+        var step = ManualConfirmation.Steps(s.Receipt, s.Decisions)[0];
+        Assert.Null(s.ConfirmStep(step, s.FormatStep(step)));
+        Assert.Equal("IDAH BRY", s.Review.Lines.Single().DisplayName);
+        Assert.Null(s.ConfirmStep(step, "02970080141  IDAHO BERRY  1.99 x 1"));
+        Assert.Equal("IDAHO BERRY", s.Review.Lines.Single().Mapping!.EstreamName);
+        Assert.Equal("02970080141  IDAHO BERRY  1.99 x 1", s.FormatStep(step));
+    }
+
+    [Fact]
+    public void A_file_can_be_created_before_anything_is_checked_and_says_what_was_left_out()
+    {
+        var s = OpenLines("21-GROCERY", "02970080141 IDAH BRY MRJ 1.99", "2439450 BAKERY BUN MRJ 3.00", "SUBTOTAL 9.99", "TOTAL 9.99");
+        Assert.False(s.Review.CanExport);
+        Assert.True(s.Review.CanExportUnchecked);
+        Assert.Throws<InvalidOperationException>(() => s.Export());
+
+        var outcome = s.Export(includeUnchecked: true);
+
+        var row = Assert.Single(RasCsv.Read(outcome.Path).Items);
+        Assert.Equal(Upc.ReceiptCodeToRasUpc("02970080141"), row.Upc);
+        Assert.Equal(1.99m, row.NewPrice);
+        Assert.Contains(outcome.ByHand, b => b.Contains("BAKERY BUN") && b.Contains("SKU or UPC"));
+        Assert.Contains("1 item in this file wasn't checked", outcome.Warning);
+        Assert.Contains("totals weren't matched", outcome.Warning);
+        Assert.Contains("exported-unchecked", _store.AuditActions(s.Record.Id));
+        Assert.Empty(_store.GetMappings(s.Record.Supplier)); // Nothing unchecked is saved as a known item.
+    }
+
+    [Fact]
+    public void An_early_file_leaves_out_codes_that_look_misread_and_uses_the_highest_cost_for_repeats()
+    {
+        var first = OpenLines("21-GROCERY", "02970080141 IDAH BRY MRJ 1.99", "SUBTOTAL 1.99", "TOTAL 1.99");
+        first.SaveMapping(Review.NewMappingDraft(first.Review.Lines.Single().Item));
+
+        var s = OpenLines("21-GROCERY", "02970080147 NEAR MISS MRJ 1.99", "06038314170 PCO MUSH MRJ 3.50", "06038314170 PCO MUSH MRJ 3.99", "SUBTOTAL 9.48", "TOTAL 9.48");
+        var rows = RasCsv.Read(s.Export(includeUnchecked: true).Path).Items;
+
+        var row = Assert.Single(rows);
+        Assert.Equal(3.99m, row.NewPrice);
+    }
+
+    [Fact]
+    public void A_file_finished_normally_has_no_warning()
+    {
+        var s = OpenLines("21-GROCERY", "02970080141 IDAH BRY MRJ 1.99", "SUBTOTAL 1.99", "TOTAL 1.99");
+        var step = ManualConfirmation.Steps(s.Receipt, s.Decisions)[0];
+        Assert.Null(s.ConfirmStep(step, s.FormatStep(step)));
+        Assert.True(s.Review.CanExport);
+        Assert.Null(s.Export().Warning);
     }
 
     [Fact]

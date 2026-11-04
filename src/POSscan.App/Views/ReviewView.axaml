@@ -22,12 +22,23 @@
       </Grid>
     </Border>
 
-    <Grid Grid.Row="1" ColumnDefinitions="424,*,360">
+    <!-- Drag the bars between the panels to resize them. -->
+    <Grid Grid.Row="1">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="424" MinWidth="220"/>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="*" MinWidth="320"/>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="360" MinWidth="280"/>
+      </Grid.ColumnDefinitions>
 
       <!-- Receipt image -->
       <Grid Grid.Column="0" RowDefinitions="*,Auto" Background="#E9EBEF">
         <ScrollViewer x:Name="ImageScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-          <Grid Width="{Binding ImageWidth}" Height="{Binding ImageHeight}" Margin="12" VerticalAlignment="Top" HorizontalAlignment="Center">
+          <Grid x:Name="ImageHost" Width="{Binding ImageWidth}" Height="{Binding ImageHeight}" Margin="12" VerticalAlignment="Top" HorizontalAlignment="Center"
+                Background="Transparent" Cursor="Hand"
+                ToolTip.Tip="Click a line to find it in the list. Scroll to zoom where the pointer is, double-click to zoom in or out, and drag to move around."
+                ToolTip.ShowDelay="1500">
             <Image Source="{Binding Preview}" Stretch="Fill"/>
             <Canvas>
               <Border IsVisible="{Binding ShowHighlight}" Canvas.Top="{Binding HighlightTop}" Width="{Binding ImageWidth}" Height="{Binding HighlightHeight}"
@@ -36,24 +47,43 @@
           </Grid>
         </ScrollViewer>
         <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="8,4" Spacing="2">
+          <Button x:Name="FitButton" Classes="link" Content="Fit"/>
           <Button Classes="link" Content="Smaller" Command="{Binding ZoomOut}"/>
           <Button Classes="link" Content="Larger" Command="{Binding ZoomIn}"/>
         </StackPanel>
       </Grid>
 
+      <GridSplitter Grid.Column="1" Width="6" ResizeDirection="Columns" Background="{StaticResource Hairline}"/>
+
       <!-- Lines -->
-      <ListBox Grid.Column="1" Classes="rows" ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}"
+      <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*" Background="{StaticResource Card}">
+      <Grid ColumnDefinitions="*,Auto,Auto" Margin="14,10,14,8">
+        <TextBox x:Name="SearchBox" Text="{Binding SearchText}" PlaceholderText="Find an item by name or UPC" KeyDown="OnSearchKeyDown"/>
+        <Button x:Name="SearchButton" Grid.Column="1" Content="Search" Command="{Binding Search}" Margin="8,0,0,0"/>
+        <Button Grid.Column="2" Classes="link" Content="Clear" Command="{Binding ClearSearch}" IsVisible="{Binding HasSearch}" Margin="4,0,0,0"/>
+      </Grid>
+      <Border Grid.Row="1" BorderBrush="{StaticResource Hairline}" BorderThickness="0,0,0,1" Padding="14,0,14,4">
+        <Grid ColumnDefinitions="*,74,56,108">
+          <TextBlock Classes="muted small" Text="UPC / Item name"/>
+          <TextBlock Grid.Column="1" Classes="muted small" Text="New unit cost" TextAlignment="Right" FontSize="11"/>
+          <TextBlock Grid.Column="2" Classes="muted small" Text="Qty" TextAlignment="Right"/>
+        </Grid>
+      </Border>
+      <TextBlock Grid.Row="2" Classes="muted" Text="{Binding NoResultsText}" IsVisible="{Binding HasNoResults}" TextWrapping="Wrap" Margin="14,12"/>
+      <ListBox Grid.Row="2" Classes="rows" ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" IsVisible="{Binding !HasNoResults}"
                Background="{StaticResource Card}" BorderBrush="{StaticResource Hairline}" BorderThickness="0,0,1,0">
         <ListBox.ItemTemplate>
           <DataTemplate x:DataType="vm:RowVm">
             <Border BorderBrush="{StaticResource Hairline}" BorderThickness="0,0,0,1" Padding="14,9">
-              <Grid ColumnDefinitions="*,Auto,Auto">
+              <Grid ColumnDefinitions="*,74,56,108">
                 <StackPanel Spacing="2">
+                  <TextBlock Classes="muted small" Text="{Binding Code}" IsVisible="{Binding HasCode}" TextTrimming="CharacterEllipsis"/>
                   <TextBlock Text="{Binding Title}" FontWeight="Medium" TextTrimming="CharacterEllipsis"/>
-                  <TextBlock Classes="muted small" Text="{Binding Subtitle}" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock Classes="muted small" Text="{Binding Subtitle}" IsVisible="{Binding HasSubtitle}" TextTrimming="CharacterEllipsis"/>
                 </StackPanel>
-                <TextBlock Grid.Column="1" Text="{Binding Amount}" VerticalAlignment="Center" Margin="10,0"/>
-                <Border Grid.Column="2" Background="{Binding StatusBg}" CornerRadius="10" Padding="9,2" VerticalAlignment="Center" MinWidth="58">
+                <TextBlock Grid.Column="1" Text="{Binding Amount}" VerticalAlignment="Center" TextAlignment="Right"/>
+                <TextBlock Grid.Column="2" Text="{Binding Quantity}" VerticalAlignment="Center" TextAlignment="Right"/>
+                <Border Grid.Column="3" Background="{Binding StatusBg}" CornerRadius="10" Padding="9,2" VerticalAlignment="Center" HorizontalAlignment="Right" MinWidth="58">
                   <TextBlock Text="{Binding Status}" Foreground="{Binding StatusFg}" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center"/>
                 </Border>
               </Grid>
@@ -61,9 +91,12 @@
           </DataTemplate>
         </ListBox.ItemTemplate>
       </ListBox>
+      </Grid>
+
+      <GridSplitter Grid.Column="3" Width="6" ResizeDirection="Columns" Background="{StaticResource Hairline}"/>
 
       <!-- Selected line -->
-      <ScrollViewer Grid.Column="2" Background="{StaticResource Canvas}">
+      <ScrollViewer Grid.Column="4" Background="{StaticResource Canvas}">
         <StackPanel Margin="18,16" Spacing="12" IsVisible="{Binding HasSelection}">
           <TextBlock Classes="h2" Text="{Binding DetailTitle}" TextWrapping="Wrap"/>
           <TextBlock Classes="muted" Text="{Binding CostSummary}" TextWrapping="Wrap" IsVisible="{Binding IsItem}"/>
@@ -101,21 +134,25 @@
           <!-- Code and amounts -->
           <StackPanel Spacing="10" IsVisible="{Binding ShowsCodeAndPrice}">
             <StackPanel>
-              <TextBlock Classes="label" Text="Item code on receipt"/>
+              <TextBlock Classes="label" Text="UPC on receipt"/>
               <TextBox Text="{Binding CodeText}"/>
             </StackPanel>
+            <StackPanel IsVisible="{Binding ShowsName}">
+              <TextBlock Classes="label" Text="Item name"/>
+              <TextBox Text="{Binding NameText}"/>
+            </StackPanel>
             <Grid ColumnDefinitions="*,10,*">
-              <StackPanel>
-                <TextBlock Classes="label" Text="{Binding QuantityLabel}"/>
-                <TextBox Text="{Binding QuantityText}"/>
-              </StackPanel>
-              <StackPanel Grid.Column="2" IsVisible="{Binding !IsGroup}">
+              <StackPanel IsVisible="{Binding !IsGroup}">
                 <TextBlock Classes="label" Text="{Binding PriceLabel}"/>
                 <TextBox Text="{Binding UnitText}"/>
               </StackPanel>
-              <StackPanel Grid.Column="2" IsVisible="{Binding IsGroup}">
+              <StackPanel IsVisible="{Binding IsGroup}">
                 <TextBlock Classes="label" Text="Multi-buy total"/>
                 <TextBox Text="{Binding GroupText}"/>
+              </StackPanel>
+              <StackPanel Grid.Column="2">
+                <TextBlock Classes="label" Text="{Binding QuantityLabel}"/>
+                <TextBox Text="{Binding QuantityText}"/>
               </StackPanel>
             </Grid>
             <StackPanel IsVisible="{Binding ShowsLineTotal}">
@@ -124,20 +161,10 @@
             </StackPanel>
           </StackPanel>
 
-          <!-- Add an unreadable line -->
-          <StackPanel IsVisible="{Binding IsUnreadable}">
-            <TextBlock Classes="label" Text="Item name"/>
-            <TextBox Text="{Binding NameText}"/>
-          </StackPanel>
-
           <!-- Estream link -->
           <StackPanel Spacing="10" IsVisible="{Binding ShowsMapping}">
             <Rectangle Height="1" Fill="{StaticResource Hairline}" Margin="0,4"/>
             <TextBlock FontWeight="SemiBold" Text="In Estream"/>
-            <StackPanel>
-              <TextBlock Classes="label" Text="Item name"/>
-              <TextBox Text="{Binding NameText}"/>
-            </StackPanel>
             <Grid ColumnDefinitions="*,10,*">
               <StackPanel>
                 <TextBlock Classes="label" Text="SKU"/>
@@ -220,10 +247,10 @@
       <Grid ColumnDefinitions="Auto,*,Auto">
         <Button Classes="link" Foreground="{StaticResource Muted}" Content="{Binding DiscardLabel}" Command="{Binding Discard}" VerticalAlignment="Center"/>
         <StackPanel Grid.Column="1" Margin="16,0" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="2">
-          <TextBlock Text="{Binding FooterText}" HorizontalAlignment="Right"/>
+          <TextBlock Text="{Binding FooterText}" HorizontalAlignment="Right" TextWrapping="Wrap"/>
           <TextBlock Text="{Binding PageError}" Foreground="{StaticResource Bad}" IsVisible="{Binding HasPageError}" TextWrapping="Wrap"/>
         </StackPanel>
-        <Button Grid.Column="2" Classes="primary" Content="Create price file" Command="{Binding Export}" Padding="20,9"/>
+        <Button Grid.Column="2" Classes="primary" Content="{Binding ExportLabel}" Command="{Binding Export}" Padding="20,9"/>
       </Grid>
     </Border>
   </Grid>
@@ -233,6 +260,10 @@
       <Border x:Name="ManualCard" DataContext="{Binding Manual}" x:DataType="vm:ManualConfirmVm" Classes="card" Width="640" Padding="24,20"
               HorizontalAlignment="Center" VerticalAlignment="Center" KeyDown="OnManualKeyDown">
         <StackPanel Spacing="12">
+          <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding IsWorking}">
+            <TextBox x:Name="ManualSearchBox" Text="{Binding SearchText}" PlaceholderText="Find an item by name or UPC" KeyDown="OnManualSearchKeyDown"/>
+            <Button x:Name="ManualSearchButton" Grid.Column="1" Content="Search" Command="{Binding Search}" Margin="8,0,0,0"/>
+          </Grid>
           <Grid ColumnDefinitions="*,Auto">
             <TextBlock Classes="h2" Text="{Binding Title}" TextWrapping="Wrap"/>
             <TextBlock Grid.Column="1" Classes="muted" Text="{Binding Progress}" Margin="12,0,0,0" VerticalAlignment="Center"/>
@@ -244,7 +275,7 @@
 
           <StackPanel IsVisible="{Binding IsWorking}">
             <TextBlock Classes="label" Text="{Binding Hint}" IsVisible="{Binding HasHint}"/>
-            <TextBox x:Name="ManualBox" Text="{Binding Text}" FontSize="20" FontFamily="Consolas,DejaVu Sans Mono,monospace" AcceptsReturn="False"/>
+            <TextBox x:Name="ManualBox" Text="{Binding Text}" FontSize="16" FontFamily="Consolas,DejaVu Sans Mono,monospace" AcceptsReturn="False"/>
           </StackPanel>
 
           <TextBlock Text="{Binding FinishText}" TextWrapping="Wrap" IsVisible="{Binding IsFinished}"/>
@@ -263,6 +294,7 @@
             </StackPanel>
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
               <Button Content="Close" Command="{Binding Close}" IsVisible="{Binding IsWorking}"/>
+              <Button x:Name="ManualCreateFile" Content="Create file now" Command="{Binding CreateFile}" IsVisible="{Binding IsWorking}"/>
               <Button Classes="primary" Content="Confirm (Enter)" Command="{Binding Next}" IsVisible="{Binding IsWorking}"/>
               <Button x:Name="ManualDone" Classes="primary" Content="Done" Command="{Binding Next}" IsVisible="{Binding IsFinished}"/>
             </StackPanel>
