@@ -40,4 +40,16 @@ public static class Upc
         if (Classify(code) != CodeKind.Upc11) throw new ArgumentException("Expected an 11-digit code", nameof(code));
         return (code + CheckDigit(code)).TrimStart('0');
     }
+
+    /// <summary>
+    /// The number printed under the product's barcode, or null when there isn't one to show. A saved UPC with a valid
+    /// check digit wins, padded back to 12 digits (UPC-A) since RAS-style UPCs drop leading zeros. Otherwise an 11-digit
+    /// receipt code gets its check digit. In-store, produce, and unreadable codes have no barcode.
+    /// </summary>
+    public static string? Barcode(string receiptCode, string? savedUpc)
+    {
+        var upc = savedUpc?.Trim() ?? "";
+        if (upc.Length is >= 8 and <= 14 && HasValidCheckDigit(upc)) return upc.Length < 12 ? upc.PadLeft(12, '0') : upc;
+        return Classify(receiptCode) == CodeKind.Upc11 ? receiptCode + CheckDigit(receiptCode) : null;
+    }
 }

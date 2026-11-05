@@ -327,6 +327,17 @@ public class WorkflowTests : IDisposable
         Assert.Contains("Superstore", ex.Message);
     }
 
+    [Fact]
+    public void A_receipt_cropped_to_a_few_items_is_read_and_can_still_be_exported()
+    {
+        var lines = File.ReadAllLines(Path.Combine("fixtures", "cropped-receipt-ocr.txt")).Select(l => new OcrLine(l)).ToList();
+        var flow = new Workflow(_store, new FixtureReader(lines, null));
+        var s = flow.Open(flow.Import(Pdf()).ReceiptId!.Value);
+        Assert.Equal(5, s.Receipt.Items.Count);
+        Assert.Contains(s.Check.Issues, i => i.Code == "NO_SUBTOTAL");
+        Assert.False(s.Review.TotalsMatch);
+    }
+
     private sealed class StackReader(params IReadOnlyList<OcrLine>[] receipts) : IReceiptReader
     {
         public IReadOnlyList<ReaderResult> Read(string pdfPath) =>

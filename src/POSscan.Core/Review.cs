@@ -214,7 +214,7 @@ public static class Review
 
     /// <summary>Whether a line fits a search. Every word has to appear in its name, code, SKU, or UPC.</summary>
     public static bool Matches(ReviewLine l, string search) =>
-        MatchesText(search, l.DisplayName, l.Item.Name, l.Item.RawCode, l.Mapping?.Sku, l.Mapping?.Upc);
+        MatchesText(search, l.DisplayName, l.Item.Name, l.Item.RawCode, l.Mapping?.Sku, l.Mapping?.Upc, Upc.Barcode(l.Item.RawCode, l.Mapping?.Upc));
 
     public static bool MatchesText(string search, params string?[] fields)
     {

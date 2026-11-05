@@ -11,6 +11,17 @@ public class UpcAndMatchTests
     public void Receipt_code_becomes_ras_style_upc(string code, string expected) =>
         Assert.Equal(expected, Upc.ReceiptCodeToRasUpc(code));
 
+    [Theory]
+    [InlineData("06870011200", null, "068700112003")]       // worked out from the receipt code
+    [InlineData("06870011200", "68700112003", "068700112003")] // saved RAS-style UPC, zeros put back
+    [InlineData("2439450", "60383002916", "060383002916")]    // in-store code with a saved UPC
+    [InlineData("06870011200", "68700112009", "068700112003")] // saved UPC fails its check digit, so not trusted
+    [InlineData("2439450", "", null)]                          // in-store code, nothing saved
+    [InlineData("4556", null, null)]                           // produce code
+    [InlineData("06870012.00", null, null)]                    // unreadable
+    public void Barcode_is_shown_only_when_there_is_one(string code, string? saved, string? expected) =>
+        Assert.Equal(expected, Upc.Barcode(code, saved));
+
     [Fact]
     public void Every_upc_in_the_real_ras_file_has_a_valid_check_digit()
     {

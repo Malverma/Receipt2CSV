@@ -4,7 +4,7 @@ Turns scanned Real Canadian Superstore receipts into `.csv` price files that Est
 
 ## Install
 
-1. Download `POSscan-Setup-1.2.0.exe` from the [latest release](https://github.com/Malverma/Receipt2CSV/releases/latest).
+1. Download `POSscan-Setup-1.3.0.exe` from the [latest release](https://github.com/Malverma/Receipt2CSV/releases/latest).
 2. Double-click the file. POSscan installs and opens by itself, with no admin password needed.
 
 The installer isn't code-signed yet, so Windows may show "Windows protected your PC". Click **More info**, then **Run anyway**.

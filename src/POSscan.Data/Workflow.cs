@@ -80,11 +80,10 @@ public sealed class Workflow(PosStore store, IReceiptReader reader)
         }
         return added.Count == 0 ? new(null, duplicate) : new(added[0], null) { Added = added };
 
-        static bool IsSuperstore(ReaderResult read)
-        {
-            var parsed = SuperstoreParser.Parse(read.Lines);
-            return SuperstoreParser.Matches(read.Lines) || (parsed.Items.Count > 0 && parsed.Subtotal is not null);
-        }
+        // A scan cropped to a few item lines has no logo or totals. Its department heading followed by item codes is
+        // still the Superstore layout, and review then flags that the totals are missing.
+        static bool IsSuperstore(ReaderResult read) =>
+            SuperstoreParser.Matches(read.Lines) || SuperstoreParser.Parse(read.Lines).Items.Count > 0;
     }
 
     public ReceiptSession Open(long id) => new(store, store.GetReceipt(id));

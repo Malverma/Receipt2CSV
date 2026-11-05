@@ -19,8 +19,11 @@ public sealed record RowVm(
     RowKind Kind, int Line, string Title, string Subtitle, string Amount, string Status, IBrush StatusFg, IBrush StatusBg, ReviewLine? Review)
 {
     public string Code { get; init; } = "";
+    /// <summary>The number under the product's barcode, blank when there isn't one (in-store and produce codes).</summary>
+    public string Barcode { get; init; } = "";
     public string Quantity { get; init; } = "";
     public bool HasCode => Code.Length > 0;
+    public string CodeLine => Barcode.Length > 0 ? $"{Code}  ·  Barcode {Barcode}" : Code;
     public bool HasSubtitle => Subtitle.Length > 0;
 }
 
@@ -135,6 +138,11 @@ public sealed class ReviewVm : Vm
     public string QuantityLabel => _selected?.Review?.Item.Unit == PriceUnit.Kg ? "Weight (kg)" : "Quantity";
     public string PriceLabel => _selected?.Review?.Item.Unit == PriceUnit.Kg ? "Price per kg" : "New unit cost";
     public string DetailTitle => _selected?.Title ?? "";
+    public string DetailBarcode => IsItem ? _selected!.Barcode : "";
+    public bool HasDetailBarcode => DetailBarcode.Length > 0;
+    public string BarcodeNote => Upc.Barcode("", _selected?.Review?.Mapping?.Upc) is not null
+        ? "From the saved item's UPC."
+        : "Worked out from the receipt code by adding its check digit. Compare it with the barcode on the product.";
     public string CostSummary => BuildCostSummary();
     public string ConfirmLabel => IsTotals ? "Save totals" : IsUnreadable ? "Add as item" : _selected?.Review?.State == LineState.Attention ? "Confirm" : "Save";
     public string? DetailError { get => _detailError; private set { if (Set(ref _detailError, value)) Raise(nameof(HasDetailError)); } }
@@ -446,7 +454,10 @@ public sealed class ReviewVm : Vm
         var qty = l.Item.Unit == PriceUnit.Kg ? $"{l.Item.Quantity:0.###} kg" : $"{l.Item.Quantity:0.###}";
         var amount = l.Cost is { } c ? (l.Item.Unit == PriceUnit.Kg ? $"{c:0.00}/kg" : $"{c:0.00}") : "?";
         var title = l.DisplayName.Length > 0 ? l.DisplayName : "(no name)";
-        return new(RowKind.Item, l.Item.SourceLine, title, "", amount, status, fg, bg, l) { Code = l.Item.RawCode, Quantity = qty };
+        return new(RowKind.Item, l.Item.SourceLine, title, "", amount, status, fg, bg, l)
+        {
+            Code = l.Item.RawCode, Barcode = Upc.Barcode(l.Item.RawCode, l.Mapping?.Upc) ?? "", Quantity = qty,
+        };
     }
 
     private void LoadDetail()
@@ -496,6 +507,7 @@ public sealed class ReviewVm : Vm
             nameof(HasSelection), nameof(IsItem), nameof(IsTotals), nameof(IsUnreadable), nameof(ShowsCodeAndPrice), nameof(ShowsName), nameof(IsGroup), nameof(IsSingleAmount),
             nameof(ShowsLineTotal), nameof(ShowsMapping), nameof(IsSkipped), nameof(IsNotForResale), nameof(ShowsActions), nameof(HasFixes), nameof(HasReasons),
             nameof(CanForce), nameof(QuantityLabel), nameof(PriceLabel), nameof(DetailTitle), nameof(CostSummary), nameof(ConfirmLabel),
+            nameof(DetailBarcode), nameof(HasDetailBarcode), nameof(BarcodeNote),
         }) Raise(p);
         RaiseHighlight();
     }

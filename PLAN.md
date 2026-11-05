@@ -38,7 +38,7 @@ The design is in `spec.md`. This file tracks what's built and what's next.
 
 ## Next steps
 
-1. **Store:** run `dist/POSscan-Setup-1.2.0.exe` on the store PC.
+1. **Store:** run `dist/POSscan-Setup-1.3.0.exe` on the store PC.
 2. **Store:** run `milestone0/README.md` on a backed-up System 5.
 3. **Store:** save Superstore receipts as they come in. Once there are about 30, run the accuracy test in spec section 12.
 4. Confirm the receipt-to-UPC rule against about 10 real products.
@@ -107,6 +107,10 @@ Set by the store on 2026-11-02:
 - Clicking a line on the receipt image selects its item in the list, and outlines the item with its fee rows on the image.
 - The scroll wheel zooms the image where the pointer is, double-click zooms in or back out, and dragging moves around. Zoom 1 fits the column.
 - The bars between the image, the list, and the details panel drag to resize them.
+
+## Barcodes
+
+Each item in the review list and details panel shows its barcode number when there is one. A saved item's UPC is used first, with its leading zeros put back to 12 digits. Otherwise the 11-digit receipt code gets its check digit, and the details panel says to compare that with the product, since the rule isn't confirmed yet. In-store and produce codes have no barcode, so none shows. Search finds items by barcode too.
 
 ## Creating a file before everything's checked
 

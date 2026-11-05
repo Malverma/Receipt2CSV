@@ -77,7 +77,7 @@
             <Border BorderBrush="{StaticResource Hairline}" BorderThickness="0,0,0,1" Padding="14,9">
               <Grid ColumnDefinitions="*,74,56,108">
                 <StackPanel Spacing="2">
-                  <TextBlock Classes="muted small" Text="{Binding Code}" IsVisible="{Binding HasCode}" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock Classes="muted small" Text="{Binding CodeLine}" IsVisible="{Binding HasCode}" TextTrimming="CharacterEllipsis"/>
                   <TextBlock Text="{Binding Title}" FontWeight="Medium" TextTrimming="CharacterEllipsis"/>
                   <TextBlock Classes="muted small" Text="{Binding Subtitle}" IsVisible="{Binding HasSubtitle}" TextTrimming="CharacterEllipsis"/>
                 </StackPanel>
@@ -136,6 +136,11 @@
             <StackPanel>
               <TextBlock Classes="label" Text="UPC on receipt"/>
               <TextBox Text="{Binding CodeText}"/>
+            </StackPanel>
+            <StackPanel IsVisible="{Binding HasDetailBarcode}">
+              <TextBlock Classes="label" Text="Barcode"/>
+              <SelectableTextBlock x:Name="DetailBarcode" Text="{Binding DetailBarcode}" FontFamily="Consolas,DejaVu Sans Mono,monospace" FontSize="15"/>
+              <TextBlock Classes="muted small" Text="{Binding BarcodeNote}" TextWrapping="Wrap" Margin="0,2,0,0"/>
             </StackPanel>
             <StackPanel IsVisible="{Binding ShowsName}">
               <TextBlock Classes="label" Text="Item name"/>
